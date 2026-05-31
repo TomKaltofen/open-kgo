@@ -141,12 +141,6 @@ _UNIVERSAL_PROPERTY_MAPPING: dict[str, Any] = {
         DefaultOptionKeys.strict_validation: False,
         DefaultOptionKeys.default: None,
     },
-    "request_timeout_ms": {
-        "explanation": "Per-request wall-clock timeout in milliseconds.",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: 30_000,
-    },
     "result_limit": {
         "explanation": (
             "Maximum rows/records returned per query (bound-output semantics). "
