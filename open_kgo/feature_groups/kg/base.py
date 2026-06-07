@@ -104,7 +104,7 @@ def narrow_property_mapping(source: dict[str, Any], *exclude: str) -> dict[str, 
     return {k: v for k, v in source.items() if k not in excluded}
 
 
-# Issue #32 item 2: the universal property mapping previously declared
+# History: the universal property mapping previously declared
 # ``auth_method`` + the three ``auth_*_env`` companion keys, and a paired
 # ``_UNIVERSAL_CONDITIONAL_REQUIRED_KEYS`` tuple tied them together. No
 # concrete plugin in the shipped 9 families ever called ``_resolve_env`` from
@@ -113,11 +113,11 @@ def narrow_property_mapping(source: dict[str, Any], *exclude: str) -> dict[str, 
 # actually opens a network socket. The auth surface was therefore decorative:
 # the framework loudly validated a credential surface no concrete read.
 #
-# The fix follows #5 item 20's narrowing approach: drop the surface from the
-# universal base until at least one networked concrete honors it, and
-# re-introduce per-concrete (or per-family) when that lands. The
-# ``_resolve_env`` helper below is kept as opt-in infrastructure so a future
-# networked concrete has something to call without re-implementing the
+# The fix follows the same narrowing approach used elsewhere in this base:
+# drop the surface from the universal base until at least one networked
+# concrete honors it, and re-introduce per-concrete (or per-family) when that
+# lands. The ``_resolve_env`` helper below is kept as opt-in infrastructure so
+# a future networked concrete has something to call without re-implementing the
 # env-var-resolution contract.
 
 
@@ -206,11 +206,10 @@ class KgConnectorReaderBase(ReadDB):
     # Per-property "requires" rules resolved against sibling values. Each entry
     # is ``(prop_name, prop_value, OR-groups)``: when ``creds.get(prop_name) ==
     # prop_value``, the OR-groups are enforced just like ``REQUIRED_KEYS`` (each
-    # group needs one truthy member). Empty by default — the universal base no
-    # longer declares any conditional rule (issue #32 item 2: the prior
-    # ``auth_method`` rules were paired with a credential surface no concrete
-    # honored). Subclasses that introduce conditional rules add them directly
-    # without an ``EXTEND`` step.
+    # group needs one truthy member). Empty by default: the universal base no
+    # longer declares any conditional rule (the prior ``auth_method`` rules were
+    # paired with a credential surface no concrete honored). Subclasses that
+    # introduce conditional rules add them directly without an ``EXTEND`` step.
     CONDITIONAL_REQUIRED_KEYS: ClassVar[tuple[tuple[str, Any, tuple[tuple[str, ...], ...]], ...]] = ()
 
     PROPERTY_MAPPING: ClassVar[dict[str, Any]] = dict(_UNIVERSAL_PROPERTY_MAPPING)
@@ -606,8 +605,8 @@ class KgConnectorReaderBase(ReadDB):
         validates via ``is_valid_credentials`` (matcher-safe ``False`` on
         error), and the direct-call path validates via ``connect()``
         (loud ``InvalidCredentialShape`` / ``MissingRequiredKeysError`` on
-        error, issue #18 item A5). This helper only unpacks the slot; concrete
-        readers no longer need to defensively re-check for ``None``.
+        error). This helper only unpacks the slot; concrete readers no longer
+        need to defensively re-check for ``None``.
 
         ``_prepare_load`` calls this *without* running ``_validate_shape``
         because the matcher already validated before dispatch; a direct call
@@ -729,7 +728,7 @@ class KgConnectorReaderBase(ReadDB):
         ``load_data`` both call into it so ``_extract_slot`` runs at most once
         per ``load_data``.
 
-        Connection-lifecycle contract (issue #32 item 3): every concrete
+        Connection-lifecycle contract: every concrete
         plugin's returned object falls into one of three categories. The
         category determines what direct callers may do with the return
         value and whether two ``_connect_from_slot`` calls for the same
@@ -796,8 +795,8 @@ class KgConnectorReaderBase(ReadDB):
 
         Opt-in helper for concretes that consume credentials from an env var
         (a bearer token, a username/password pair, etc.). The universal base
-        does NOT call this hook — issue #32 item 2 documented that no shipped
-        concrete authenticated against a network, so a universally-required
+        does NOT call this hook: no shipped concrete authenticated against a
+        network, so a universally-required
         env-var surface would be a contract the framework could not enforce.
         Concretes that introduce a real auth surface declare the matching
         ``auth_*_env`` keys themselves (on a family base or the concrete) and
@@ -811,7 +810,7 @@ class KgConnectorReaderBase(ReadDB):
         ``"   "``, ``"\t"``, ``"\n"``, or any mix). Downstream auth would
         otherwise fail opaquely with no diagnostic on such values.
 
-        Issue #18 C4: the contract is "value must contain at least one
+        The contract is "value must contain at least one
         non-whitespace character." The returned value is ``value.strip()`` so
         stray surrounding whitespace (a common ``.env``/copy-paste artifact)
         does not leak through to downstream auth either — if the rejection
@@ -1072,8 +1071,8 @@ class KgConnectorFeatureGroupBase(FeatureGroup):
 
     ``compute_framework_rule`` is pinned to ``{KgPythonDictFramework}`` so the
     feature-name wrap that mloda's column-matcher needs lives in a
-    framework-specific adapter rather than every reader's ``load`` (issue #5
-    item 10). Subclasses MUST NOT override this hook to a framework that does
+    framework-specific adapter rather than every reader's ``load``.
+    Subclasses MUST NOT override this hook to a framework that does
     not perform an equivalent wrap: native KG rows have keys like ``s``/``p``/``o``
     that never match the user-defined feature name, so a non-wrapping framework
     silently loses every row in column slicing. If a different framework is

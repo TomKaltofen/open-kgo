@@ -1,4 +1,4 @@
-"""Validation-contract tests for issue #5 items 1-4.
+"""Validation-contract tests for the universal KG reader surface.
 
 These exercise behaviors that are universal across all KG readers and do not
 need a per-family adapter, so they live next to the cross-group smoke test
@@ -60,7 +60,7 @@ def test_is_valid_credentials_returns_false_on_strict_enum_violation() -> None:
     ``{UPSTREAM, DOWNSTREAM, BOTH}`` via ``SUPPORTED_VALUES``, so ``"SIDEWAYS"``
     is reliably outside the effective allowed set. The earlier seed for this
     test was ``auth_method="evil"``; the auth surface was removed from the
-    universal base (issue #32 item 2), so the seed value moved to a strict
+    universal base, so the seed value moved to a strict
     enum that the concrete still honors.
     """
     bad = HashableDict({"dbt_manifest": {"locator": "/tmp/x.json", "lineage_direction": "SIDEWAYS"}})

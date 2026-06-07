@@ -36,7 +36,7 @@ jobs:
 
       - name: Run tox
         run: tox
-        timeout-minutes: 2
+        timeout-minutes: 3
 
   notebooks:
     # Demo marimo notebooks are slow to execute end-to-end, so they run as a
