@@ -113,12 +113,11 @@ def narrow_property_mapping(source: dict[str, Any], *exclude: str) -> dict[str, 
 # actually opens a network socket. The auth surface was therefore decorative:
 # the framework loudly validated a credential surface no concrete read.
 #
-# The fix follows the same narrowing approach used elsewhere in this base: drop
-# the surface from the
-# universal base until at least one networked concrete honors it, and
-# re-introduce per-concrete (or per-family) when that lands. The
-# ``_resolve_env`` helper below is kept as opt-in infrastructure so a future
-# networked concrete has something to call without re-implementing the
+# The fix follows the same narrowing approach used elsewhere in this base:
+# drop the surface from the universal base until at least one networked
+# concrete honors it, and re-introduce per-concrete (or per-family) when that
+# lands. The ``_resolve_env`` helper below is kept as opt-in infrastructure so
+# a future networked concrete has something to call without re-implementing the
 # env-var-resolution contract.
 
 
@@ -168,6 +167,14 @@ _UNIVERSAL_PROPERTY_MAPPING: dict[str, Any] = {
 # this back to ``None``, so the next call rewalks and picks it up. The cached
 # set is treated as read-only by callers (they only do set algebra against it,
 # never mutate it in place).
+#
+# INVARIANT: ``__init_subclass__`` is the ONLY invalidator. The cache is correct
+# only because every key that can enter the union arrives via a
+# ``KgConnectorReaderBase`` subclass definition, which fires ``__init_subclass__``
+# and resets this to ``None``. A future change that sources reserved keys from
+# anything other than a subclass definition (e.g. a dynamic reader registry, or
+# keys read from config) MUST also reset this to ``None``, or the union goes
+# stale silently.
 _KG_KNOWN_KEYS_CACHE: set[str] | None = None
 
 
@@ -232,9 +239,8 @@ class KgConnectorReaderBase(ReadDB):
     # prop_value``, the OR-groups are enforced just like ``REQUIRED_KEYS`` (each
     # group needs one truthy member). Empty by default: the universal base no
     # longer declares any conditional rule (the prior ``auth_method`` rules were
-    # paired with a credential surface no concrete
-    # honored). Subclasses that introduce conditional rules add them directly
-    # without an ``EXTEND`` step.
+    # paired with a credential surface no concrete honored). Subclasses that
+    # introduce conditional rules add them directly without an ``EXTEND`` step.
     CONDITIONAL_REQUIRED_KEYS: ClassVar[tuple[tuple[str, Any, tuple[tuple[str, ...], ...]], ...]] = ()
 
     PROPERTY_MAPPING: ClassVar[dict[str, Any]] = dict(_UNIVERSAL_PROPERTY_MAPPING)
@@ -637,8 +643,8 @@ class KgConnectorReaderBase(ReadDB):
         validates via ``is_valid_credentials`` (matcher-safe ``False`` on
         error), and the direct-call path validates via ``connect()``
         (loud ``InvalidCredentialShape`` / ``MissingRequiredKeysError`` on
-        error). This helper only unpacks the slot; concrete
-        readers no longer need to defensively re-check for ``None``.
+        error). This helper only unpacks the slot; concrete readers no longer
+        need to defensively re-check for ``None``.
 
         ``_prepare_load`` calls this *without* running ``_validate_shape``
         because the matcher already validated before dispatch; a direct call
@@ -827,8 +833,8 @@ class KgConnectorReaderBase(ReadDB):
 
         Opt-in helper for concretes that consume credentials from an env var
         (a bearer token, a username/password pair, etc.). The universal base
-        does NOT call this hook: no shipped
-        concrete authenticated against a network, so a universally-required
+        does NOT call this hook: no shipped concrete authenticated against a
+        network, so a universally-required
         env-var surface would be a contract the framework could not enforce.
         Concretes that introduce a real auth surface declare the matching
         ``auth_*_env`` keys themselves (on a family base or the concrete) and

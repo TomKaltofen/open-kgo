@@ -112,4 +112,9 @@ exclude-newer = "7 days"
 # immediately (e.g. to pick up a coordinated mloda bump without a 7-day lag). A
 # rolling "0 days" span expresses exactly that and, unlike a hard-coded calendar
 # date, never ages out into a silent behaviour flip. Owner: tk.
+#
+# Accepted tradeoff: this removes the cooldown for these three deps entirely, so a
+# compromised upload to the mloda org's PyPI account would land here immediately
+# with no quarantine window. We take that risk for first-party packages we
+# control; do NOT add third-party packages to this override.
 exclude-newer-package = { mloda = "0 days", "mloda-testing" = "0 days", "mloda-registry" = "0 days" }
