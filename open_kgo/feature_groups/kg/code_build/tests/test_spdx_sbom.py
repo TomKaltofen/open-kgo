@@ -91,6 +91,31 @@ class TestSpdxSbomReader(CodeBuildContractTestBase):
         rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
         assert {r["name"] for r in rows} == {"app", "flask"}
 
+    def test_dependency_of_inverse_orientation_and_dangling_edge(self) -> None:
+        """``DEPENDENCY_OF`` resolves to the same depender->dependency orientation, and a
+        relationship pointing at a package id absent from ``packages`` is skipped
+        without aborting the walk.
+
+        Fixture: ``lib-b DEPENDENCY_OF lib-a`` (so lib-a depends on lib-b) plus a
+        dangling ``lib-a DEPENDS_ON <missing>``. Walking UPSTREAM from lib-a must
+        reach lib-b (inverse orientation) and drop the missing id from output.
+        """
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        feat = Feature(
+            "spdx_sbom__lib_upstream",
+            options=Options(
+                context={
+                    "start_spdx_id": "SPDXRef-Package-lib-a",
+                    "lineage_direction": "UPSTREAM",
+                    "upstream_depth": 2,
+                    "downstream_depth": 0,
+                }
+            ),
+        )
+        rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
+        assert {r["name"] for r in rows} == {"lib-a", "lib-b"}
+
     def test_downstream_walk_finds_dependents(self) -> None:
         from open_kgo.feature_groups.kg.tests._helpers import run_query
 

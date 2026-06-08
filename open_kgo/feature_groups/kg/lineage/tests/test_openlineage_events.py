@@ -32,7 +32,10 @@ class TestOpenLineageReader(LineageContractTestBase):
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:
-        # Bad ``lineage_direction`` value triggers the SUPPORTED_VALUES narrowing.
+        # ``lineage_direction`` is a PARAMS key, so in the credential slot it is
+        # rejected by the closed-world unknown-credential-key check. (The
+        # strict-enum narrowing for it is exercised per-call by the inherited
+        # ``test_strict_validation_params_enums_rejected_per_key``.)
         return {"openlineage_events": {"locator": str(_FIXTURE), "lineage_direction": "SIDEWAYS"}}
 
     @classmethod

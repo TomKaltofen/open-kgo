@@ -65,6 +65,12 @@ def _expand_usersets(rows: list[_Tuple], all_tuples: list[_Tuple], expand_paths:
     ``relationship_type`` filter are still available to resolve a userset.
     Only usersets whose ``<rel>`` is listed in ``expand_paths`` are expanded;
     everything else passes through unchanged.
+
+    Structural-expansion semantics: an expanded userset that resolves to no
+    members (an empty or absent group) yields **zero** grants — the original
+    ``group:<id>#<rel>`` row is replaced by its (empty) membership, so it drops
+    out of the result. A userset whose ``<rel>`` is NOT in ``expand_paths`` is
+    left untouched and passes through as-is.
     """
     if not expand_paths:
         return rows

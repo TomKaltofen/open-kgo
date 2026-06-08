@@ -7,12 +7,16 @@
     {"SPDXID": "SPDXRef-Package-app", "name": "app", "versionInfo": "1.0.0"},
     {"SPDXID": "SPDXRef-Package-flask", "name": "flask", "versionInfo": "3.0.0"},
     {"SPDXID": "SPDXRef-Package-werkzeug", "name": "werkzeug", "versionInfo": "3.0.1"},
-    {"SPDXID": "SPDXRef-Package-click", "name": "click", "versionInfo": "8.1.7"}
+    {"SPDXID": "SPDXRef-Package-click", "name": "click", "versionInfo": "8.1.7"},
+    {"SPDXID": "SPDXRef-Package-lib-a", "name": "lib-a", "versionInfo": "2.0.0"},
+    {"SPDXID": "SPDXRef-Package-lib-b", "name": "lib-b", "versionInfo": "2.1.0"}
   ],
   "relationships": [
     {"spdxElementId": "SPDXRef-DOCUMENT", "relatedSpdxElement": "SPDXRef-Package-app", "relationshipType": "DESCRIBES"},
     {"spdxElementId": "SPDXRef-Package-app", "relatedSpdxElement": "SPDXRef-Package-flask", "relationshipType": "DEPENDS_ON"},
     {"spdxElementId": "SPDXRef-Package-flask", "relatedSpdxElement": "SPDXRef-Package-werkzeug", "relationshipType": "DEPENDS_ON"},
-    {"spdxElementId": "SPDXRef-Package-flask", "relatedSpdxElement": "SPDXRef-Package-click", "relationshipType": "DEPENDS_ON"}
+    {"spdxElementId": "SPDXRef-Package-flask", "relatedSpdxElement": "SPDXRef-Package-click", "relationshipType": "DEPENDS_ON"},
+    {"spdxElementId": "SPDXRef-Package-lib-b", "relatedSpdxElement": "SPDXRef-Package-lib-a", "relationshipType": "DEPENDENCY_OF"},
+    {"spdxElementId": "SPDXRef-Package-lib-a", "relatedSpdxElement": "SPDXRef-Package-does-not-exist", "relationshipType": "DEPENDS_ON"}
   ]
 }
