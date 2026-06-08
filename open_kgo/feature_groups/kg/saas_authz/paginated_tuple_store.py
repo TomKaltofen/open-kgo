@@ -79,7 +79,10 @@ def _expand_usersets(rows: list[_Tuple], all_tuples: list[_Tuple], expand_paths:
             group_ref = user[len("group:") :]
             group_id, _, group_rel = group_ref.partition("#")
             if group_rel in expand_paths:
-                for member_user in members.get((group_id, group_rel), []):
+                # dict.fromkeys dedupes members defined by repeated membership
+                # tuples while preserving order, so the expansion can't emit the
+                # same (object, user) grant twice.
+                for member_user in dict.fromkeys(members.get((group_id, group_rel), [])):
                     expanded.append((object_type, object_id, relation, member_user))
                 continue
         expanded.append((object_type, object_id, relation, user))

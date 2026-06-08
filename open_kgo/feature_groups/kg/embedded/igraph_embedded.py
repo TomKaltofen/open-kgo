@@ -110,7 +110,11 @@ class IGraphEmbeddedReader(EmbeddedGraphReader):
             start_indices = [v.index for v in graph.vs if _vertex_key(v) == start]
             if not start_indices:
                 return []
-            neighbors = islice(graph.neighbors(start_indices[0]), ctx.result_limit)
+            # ``mode="out"`` matches NetworkxEmbeddedReader, which uses
+            # ``DiGraph.neighbors`` (successors). On an undirected graph igraph
+            # ignores ``mode`` and returns all neighbors, so the two embedded
+            # backends agree on both directed and undirected inputs.
+            neighbors = islice(graph.neighbors(start_indices[0], mode="out"), ctx.result_limit)
             return [{"node": _vertex_key(graph.vs[n])} for n in neighbors]
         raise ValueError(f"{cls.CONNECTOR_ID}: unsupported operation={op!r}")
 

@@ -110,3 +110,18 @@ class TestOxigraphSparqlReader(RdfContractTestBase):
         creds = {cls.CONNECTOR_ID: {"locator": "/nonexistent/path/to/graph.ttl"}}
         with pytest.raises(FixtureLoadError):
             cls.connect(creds)
+
+    def test_malformed_rdf_locator_is_typed(self, tmp_path: Path) -> None:
+        """A present-but-unparseable Turtle file raises ``FixtureLoadError``.
+
+        Exercises the parse-failure branch in ``load_oxigraph_store`` (pyoxigraph
+        raises the builtin ``SyntaxError``, wrapped as ``FixtureLoadError``), so a
+        future pyoxigraph exception-type change surfaces as a test failure rather
+        than a leaked untyped error.
+        """
+        cls = self.connector_reader_class()
+        bad = tmp_path / "bad.ttl"
+        bad.write_text("@prefix ex: <http://example.org/> .\nex:s ex:p <<< not turtle", encoding="utf-8")
+        creds = {cls.CONNECTOR_ID: {"locator": str(bad)}}
+        with pytest.raises(FixtureLoadError):
+            cls.connect(creds)

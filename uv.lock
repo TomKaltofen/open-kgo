@@ -899,7 +899,7 @@ requires-dist = [
     { name = "networkx", marker = "extra == 'kg-network-pg'", specifier = ">=3.2" },
     { name = "open-kgo", extras = ["kg-all"], marker = "extra == 'demo'" },
     { name = "open-kgo", extras = ["kg-rdf", "kg-embedded", "kg-network-pg", "kg-memory", "kg-rest", "kg-lineage", "kg-codebuild", "kg-saas", "kg-citation", "kg-ontology"], marker = "extra == 'kg-all'" },
-    { name = "pyoxigraph", marker = "extra == 'kg-rdf'", specifier = ">=0.4" },
+    { name = "pyoxigraph", marker = "extra == 'kg-rdf'", specifier = ">=0.5" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pyyaml", marker = "extra == 'kg-ontology'", specifier = ">=6.0" },
     { name = "rdflib", marker = "extra == 'kg-rdf'", specifier = ">=7.0" },
