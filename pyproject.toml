@@ -44,9 +44,9 @@ dev = [
     "mypy",
     "bandit",
 ]
-kg-rdf = ["rdflib>=7.0"]
-kg-embedded = ["networkx>=3.2"]
-kg-network-pg = ["kuzu>=0.4"]
+kg-rdf = ["rdflib>=7.0", "pyoxigraph>=0.4"]
+kg-embedded = ["networkx>=3.2", "igraph>=0.11"]
+kg-network-pg = ["kuzu>=0.4", "networkx>=3.2", "grand-cypher>=0.12"]
 kg-memory = ["networkx>=3.2"]
 kg-ontology = ["pyyaml>=6.0"]
 # Pure-stdlib families: extras intentionally empty so every family installs via

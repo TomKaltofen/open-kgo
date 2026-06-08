@@ -30,6 +30,7 @@ import pytest
 from open_kgo.feature_groups.kg.fixtures import (
     _open_kuzu_database_cached,
     _read_json_cached,
+    _read_oxigraph_store_cached,
     _read_rdf_graph_cached,
 )
 from open_kgo.feature_groups.kg.ontology.registry import OntologyRegistry
@@ -40,10 +41,12 @@ def _clear_kg_resource_caches() -> Any:
     """Clear every resource cache before and after each KG test."""
     _read_json_cached.cache_clear()
     _read_rdf_graph_cached.cache_clear()
+    _read_oxigraph_store_cached.cache_clear()
     _open_kuzu_database_cached.cache_clear()
     OntologyRegistry._clear()
     yield
     _read_json_cached.cache_clear()
     _read_rdf_graph_cached.cache_clear()
+    _read_oxigraph_store_cached.cache_clear()
     _open_kuzu_database_cached.cache_clear()
     OntologyRegistry._clear()

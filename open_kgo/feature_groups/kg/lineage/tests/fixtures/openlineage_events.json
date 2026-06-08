@@ -1,0 +1,23 @@
+{
+  "producer": "https://github.com/OpenLineage/OpenLineage/tree/1.0.0",
+  "events": [
+    {
+      "eventType": "COMPLETE",
+      "job": {"namespace": "food_delivery", "name": "ingest_orders"},
+      "inputs": [{"namespace": "food_delivery", "name": "raw.orders"}],
+      "outputs": [{"namespace": "food_delivery", "name": "stg_orders"}]
+    },
+    {
+      "eventType": "COMPLETE",
+      "job": {"namespace": "food_delivery", "name": "build_fct"},
+      "inputs": [{"namespace": "food_delivery", "name": "stg_orders"}],
+      "outputs": [{"namespace": "food_delivery", "name": "fct_orders"}]
+    },
+    {
+      "eventType": "COMPLETE",
+      "job": {"namespace": "food_delivery", "name": "build_report"},
+      "inputs": [{"namespace": "food_delivery", "name": "fct_orders"}],
+      "outputs": [{"namespace": "food_delivery", "name": "report_daily"}]
+    }
+  ]
+}

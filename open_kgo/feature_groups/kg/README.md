@@ -3,22 +3,25 @@
 Nine families derived from a 103-system survey (see
 `docs/kg-connector-base-classes.md` Version B). Each family is a
 `<Family>Reader(KgConnectorReaderBase)` + `<Family>FeatureGroup`, paired with
-at least one concrete plugin that runs against in-memory libraries or local
-fixture files. No Docker, no external services.
+**two** concrete plugins that run against in-memory libraries or local fixture
+files. No Docker, no external services. The second concrete per family is
+either a different backend on the same contract (backend variety) or a backend
+that exercises family surface the first concrete narrows / strips (see
+issue #16); the **New surface** column records which.
 
 ## Family map
 
-| Family | Concrete plugin | Pedigree | Notes |
+| Family | Concrete plugins | Pedigree | New surface vs. first plugin |
 |---|---|---|---|
-| `network_pg` | `KuzuCypherReader` | Real Python lib (`kuzu`) | Embedded but Cypher-shaped. Does NOT exercise `read_consistency` / `transaction_mode`. |
-| `rdf` | `RdfLibSparqlReader` | Real Python lib (`rdflib`) | Canonical fit — in-memory Graph + SPARQL. |
-| `embedded` | `NetworkxEmbeddedReader` | Real Python lib (`networkx`) | Loads `.gml` from `locator` (filesystem path; no network). |
-| `rest_public` | `FileFixtureRestReader` | Prototype + JSON fixtures | Pagination/cursor against static `page_<N>.json`; `pagination_style` narrowed to `cursor` via `SUPPORTED_VALUES`; `page_size` rejected at credential time, `cursor_token` / `entity_type` rejected at per-call time (`_STRIPPED_PARAMS`). No real `rate_limit_pace`. |
-| `lineage` | `DbtManifestReader` | Real artifact (dbt manifest.json) | Walks `parent_map` / `child_map`. |
-| `code_build` | `CycloneDxSbomReader` | Real artifact (CycloneDX) | Parses fixture SBOM components; does not walk the `dependencies` graph; all TraversalMixin / EntityFilter keys rejected at per-call time (`_STRIPPED_PARAMS`). |
-| `saas_authz` | `InProcessTupleStoreReader` | Prototype | Zanzibar-shaped tuple list. Validates property shape only — no real consistency-token semantics. |
-| `agent_memory` | `NetworkxMemoryReader` | Prototype on top of NetworkX | Lexical search only; vector / hybrid / graph rejected at validate-time via `SUPPORTED_VALUES`. |
-| `citation_rest` | `FileFixtureCitationReader` | Prototype + JSON fixture | Reactome-shaped catalog with ancestor walk; `pagination_style` / `page_size` rejected at credential time, `cursor_token` / `entity_type` rejected at per-call time (`_STRIPPED_PARAMS`). |
+| `network_pg` | `KuzuCypherReader`, `GrandCypherReader` | Real Python libs (`kuzu`; `grand-cypher` over `networkx`) | None — both embedded, so `read_consistency` / `transaction_mode` stay waived. Second Cypher engine. |
+| `rdf` | `RdfLibSparqlReader`, `OxigraphSparqlReader` | Real Python libs (`rdflib`; `pyoxigraph`) | None — `result_format` / `reasoning_profile` stay narrowed on both. Second SPARQL engine. |
+| `embedded` | `NetworkxEmbeddedReader`, `IGraphEmbeddedReader` | Real Python libs (`networkx`; `igraph`) | None — same formats / operations. Second embedded graph lib. |
+| `rest_public` | `FileFixtureRestReader`, `FileFixturePagedRestReader` | Prototype + JSON fixtures | **`pagination_style=page` + `page_size`** (cursor concrete narrows to `cursor` and drops `page_size`). |
+| `lineage` | `DbtManifestReader`, `OpenLineageReader` | Real artifacts (dbt `manifest.json`; OpenLineage run-event JSON) | None — both walk UPSTREAM / DOWNSTREAM / BOTH. Second lineage artifact. |
+| `code_build` | `CycloneDxSbomReader`, `SpdxSbomReader` | Real artifacts (CycloneDX; SPDX) | **TraversalMixin** (`lineage_direction` / `upstream_depth` / `downstream_depth`) — SPDX walks the `DEPENDS_ON` graph the CycloneDX concrete strips. |
+| `saas_authz` | `InProcessTupleStoreReader`, `PaginatedTupleStoreReader` | Prototype | **`pagination_style=cursor` + `page_size` + `cursor_token` + `expand_paths`** (structural group expansion; still no real consistency-token semantics). |
+| `agent_memory` | `NetworkxMemoryReader`, `GraphWalkMemoryReader` | Prototype on top of NetworkX | **`retrieval_mode=graph`** (lexical concrete narrows to `lexical`). |
+| `citation_rest` | `FileFixtureCitationReader`, `PaginatedCitationReader` | Prototype + JSON fixtures | **`pagination_style=cursor` + `page_size` + `cursor_token` + `entity_type`** (Reactome concrete drops / strips them). |
 
 ## Layout
 
@@ -107,14 +110,21 @@ infrastructure.
 
 ## What this prototype does NOT validate
 
-- **`network_pg`**: KuzuDB is embedded; `read_consistency`, `transaction_mode`,
-  routing, bookmarks are no-ops. Real Neo4j / Memgraph / Neptune behavior is
-  out of scope.
-- **`saas_authz`**: in-process tuple store has no Zanzibar consistency tokens,
-  no model-id versioning, no namespaced check evaluation.
-- **`citation_rest`** / **`rest_public`**: file fixtures exercise pagination
-  shape but not real `rate_limit_pace` enforcement.
-- **`agent_memory`**: only `retrieval_mode=lexical` is implemented; the
-  other family-level values (`vector`, `hybrid`, `graph`) are rejected at
-  `is_valid_credentials` time via `SUPPORTED_VALUES` so the surface does
-  not lie about what this concrete honors.
+- **`network_pg`**: both concretes (KuzuDB, GrandCypher) are embedded;
+  `read_consistency`, `transaction_mode`, routing, bookmarks are no-ops. Real
+  Neo4j / Memgraph / Neptune behavior is out of scope.
+- **`saas_authz`**: neither tuple-store concrete implements real Zanzibar
+  consistency tokens, model-id versioning, or namespaced check evaluation.
+  `PaginatedTupleStoreReader` adds cursor pagination and *structural*
+  `expand_paths` group expansion, but the expansion is a single in-process
+  pass, not a real userset-rewrite evaluator.
+- **`citation_rest`** / **`rest_public`**: file fixtures exercise both
+  pagination shapes (cursor and page-number, across the two concretes per
+  family) but not real `rate_limit_pace` enforcement.
+- **`rdf`**: both SPARQL engines (rdflib, oxigraph) return JSON-binding-shaped
+  rows and have no inference, so `result_format` stays narrowed to JSON and
+  `reasoning_profile` to `none`.
+- **`agent_memory`**: `retrieval_mode=lexical` (NetworkxMemoryReader) and
+  `retrieval_mode=graph` (GraphWalkMemoryReader) are implemented; `vector` /
+  `hybrid` remain rejected at `is_valid_credentials` time via
+  `SUPPORTED_VALUES` so neither concrete lies about what it honors.

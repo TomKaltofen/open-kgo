@@ -1,0 +1,14 @@
+{
+  "user_42": {
+    "nodes": [
+      {"id": "m1", "label": "likes coffee", "valid_at": "2026-01-01T00:00:00Z"},
+      {"id": "m2", "label": "prefers strong coffee", "valid_at": "2026-02-01T00:00:00Z"},
+      {"id": "m3", "label": "drinks espresso daily", "valid_at": "2026-03-01T00:00:00Z"},
+      {"id": "m4", "label": "unrelated note about tea", "valid_at": "2026-01-15T00:00:00Z"}
+    ],
+    "edges": [
+      {"src": "m1", "tgt": "m2", "relation": "refines"},
+      {"src": "m2", "tgt": "m3", "relation": "refines"}
+    ]
+  }
+}

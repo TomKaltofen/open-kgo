@@ -5,9 +5,13 @@ hierarchy_depth traversal, and species/release version pinning. Inherits
 ``PaginationMixin``.
 
 PROTOTYPE NOTE: ``FileFixtureCitationReader`` reads ``locator``,
-``stable_id``, and ``hierarchy_depth`` at runtime. ``pagination_style``
-(strict-validated), ``page_size``, ``cursor_token``, ``entity_type``,
-``species_prefix``, and ``dataset_version`` are accepted at the property
-layer but never read — the catalog dict is loaded eagerly and ancestor
-walks are bounded by ``hierarchy_depth`` alone.
+``stable_id``, and ``hierarchy_depth`` at runtime; it drops ``pagination_style``
+/ ``page_size`` and strips ``cursor_token`` / ``entity_type``, so its ancestor
+walk is bounded by ``hierarchy_depth`` alone.
+
+SECOND CONCRETE: ``PaginatedCitationReader`` *honors* the dropped surface —
+cursor pagination (``pagination_style=cursor`` + ``page_size`` + per-call
+``cursor_token`` offsets) plus an ``entity_type`` filter over the citation
+graph it walks. ``species_prefix`` / ``dataset_version`` remain accepted but
+unused on both concretes.
 """

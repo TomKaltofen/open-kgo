@@ -18,7 +18,10 @@ live on the family base for future concrete readers (Mem0, Zep+Graphiti,
 Letta) that own their own per-tenant stores.
 
 PROTOTYPE NOTE: ``retrieval_mode`` is strict-validated against
-``{lexical, vector, hybrid, graph}`` but only ``lexical`` is implemented;
-``vector``/``hybrid``/``graph`` raise ``NotImplementedError`` at
-``load_data`` time (see ``networkx_memory.py``).
+``{lexical, vector, hybrid, graph}``. ``NetworkxMemoryReader`` narrows it to
+``lexical`` (string-match over node labels); ``GraphWalkMemoryReader``
+narrows it to ``graph`` (BFS from a seed node id given as ``query_text``).
+``vector`` / ``hybrid`` remain unimplemented and are rejected at
+``is_valid_credentials`` time via ``SUPPORTED_VALUES`` on each concrete, so
+neither reader lies about what it honors.
 """

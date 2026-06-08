@@ -1,0 +1,18 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "example-app-sbom",
+  "packages": [
+    {"SPDXID": "SPDXRef-Package-app", "name": "app", "versionInfo": "1.0.0"},
+    {"SPDXID": "SPDXRef-Package-flask", "name": "flask", "versionInfo": "3.0.0"},
+    {"SPDXID": "SPDXRef-Package-werkzeug", "name": "werkzeug", "versionInfo": "3.0.1"},
+    {"SPDXID": "SPDXRef-Package-click", "name": "click", "versionInfo": "8.1.7"}
+  ],
+  "relationships": [
+    {"spdxElementId": "SPDXRef-DOCUMENT", "relatedSpdxElement": "SPDXRef-Package-app", "relationshipType": "DESCRIBES"},
+    {"spdxElementId": "SPDXRef-Package-app", "relatedSpdxElement": "SPDXRef-Package-flask", "relationshipType": "DEPENDS_ON"},
+    {"spdxElementId": "SPDXRef-Package-flask", "relatedSpdxElement": "SPDXRef-Package-werkzeug", "relationshipType": "DEPENDS_ON"},
+    {"spdxElementId": "SPDXRef-Package-flask", "relatedSpdxElement": "SPDXRef-Package-click", "relationshipType": "DEPENDS_ON"}
+  ]
+}

@@ -44,6 +44,31 @@ _CURSOR_FAMILY_STYLES: frozenset[str] = frozenset(
 )
 
 
+def parse_offset_cursor(connector_id: str, cursor_token: Any) -> int:
+    """Parse an opaque ``"offset:<N>"`` cursor token into a non-negative integer offset.
+
+    Shared by the cursor-paginating concretes (``PaginatedCitationReader``,
+    ``PaginatedTupleStoreReader``) so the opaque-token convention lives in one
+    place alongside ``PaginationMixin``. ``None`` (the first-page case) maps to
+    offset 0; a malformed token raises ``InvalidCredentialShape`` so a
+    hand-typed cursor surfaces a typed error rather than silently restarting
+    from the first page.
+    """
+    if cursor_token is None:
+        return 0
+    token = str(cursor_token)
+    if token.startswith("offset:"):
+        try:
+            offset = int(token.split(":", 1)[1])
+        except ValueError:
+            offset = -1
+        if offset >= 0:
+            return offset
+    raise InvalidCredentialShape(
+        f"{connector_id}: cursor_token {cursor_token!r} is malformed; expected 'offset:<N>' with N >= 0."
+    )
+
+
 _ENTITY_FILTER_KEYS: dict[str, Any] = {
     "entity_type": {
         "explanation": "Object type for the request (e.g. 'document', 'group').",
