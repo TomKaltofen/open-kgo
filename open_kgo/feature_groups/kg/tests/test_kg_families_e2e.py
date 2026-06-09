@@ -549,12 +549,18 @@ def test_cross_family_asymmetry_catalog() -> None:
     output and in any review. The only assertion is the one genuine invariant (no connector is
     classified twice in a dimension); the value here is the printed catalog, not a gate.
 
-    Known asymmetries surfaced (each a candidate for follow-up, not a hard failure here):
+    Asymmetries surfaced (printed, not asserted):
       - ``code_build`` keys credentials on ``manifest_path`` while the other eight families use ``locator``.
+        INTENTIONAL and documented (resolved per issue #18): the family base deliberately renames and
+        enriches the address slot (``manifest_path`` travels with ``commit_sha`` / ``branch`` /
+        ``language_code``, with ``locator`` kept as a fallback). See the DESIGN NOTE in
+        ``kg/code_build/__init__.py``. It stays in the catalog so the map is complete, not because it is an
+        open follow-up.
       - ``saas_authz.in_process_tuple_store`` takes no fixture credential at all: its fixture is baked into
         the reader (``_FIXTURE_PATH``), so it is the one connector you cannot repoint without code.
+        (Candidate for follow-up.)
       - ``network_pg.kuzu_cypher`` is the only connector that builds its backend at test time rather than
-        reading a committed fixture.
+        reading a committed fixture. (Candidate for follow-up.)
     """
     by_input: dict[str, list[str]] = defaultdict(list)
     by_locator: dict[str, list[str]] = defaultdict(list)

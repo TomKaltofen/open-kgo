@@ -3,6 +3,21 @@
 Hidden-KG family. Locator is replaced by ``manifest_path`` semantics; address
 includes ``commit_sha``, ``branch``, ``language_code``. Inherits ``TraversalMixin``.
 
+DESIGN NOTE (the ``manifest_path`` vs ``locator`` asymmetry is intentional): the
+other eight families address their source through the shared ``locator`` slot,
+and only this family keys on ``manifest_path``. That divergence is a deliberate
+demonstration that a family base may rename and enrich the address slot, not an
+accidental inconsistency. ``manifest_path`` is a richer address than a bare
+``locator``: it travels with ``commit_sha`` / ``branch`` / ``language_code`` so a
+caller can pin the artifact to the exact source revision it was produced from,
+which a generic file-path locator does not express. Generic callers are not
+blocked: every concrete still accepts ``locator`` as a fallback (the readers do
+``slot.get("manifest_path") or slot.get("locator")``), so the only difference is
+which slot name this family documents as primary. This resolves the ``code_build``
+line of the cross-family asymmetry catalog (see
+``kg/tests/test_kg_families_e2e.py::test_cross_family_asymmetry_catalog``); it is
+a recorded design decision, not an open follow-up.
+
 PROTOTYPE NOTE: ``CycloneDxSbomReader`` reads ``manifest_path`` (with
 ``locator`` fallback) and returns the SBOM's ``components`` list — nothing
 more. It strips the entire ``TraversalMixin`` / ``EntityFilter`` per-call

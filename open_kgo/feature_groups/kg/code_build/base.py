@@ -19,7 +19,12 @@ class CodeBuildReader(ParamReader):
         ParamReader.PROPERTY_MAPPING,
         {
             "manifest_path": {
-                "explanation": "Path to the manifest/database/SBOM artifact (replaces locator).",
+                "explanation": (
+                    "Path to the manifest/database/SBOM artifact. This family deliberately keys on "
+                    "manifest_path instead of the shared 'locator' slot (a richer address paired with "
+                    "commit_sha/branch/language_code); 'locator' is still accepted as a fallback. See the "
+                    "DESIGN NOTE in this package's __init__.py."
+                ),
                 DefaultOptionKeys.context: True,
                 DefaultOptionKeys.strict_validation: False,
                 DefaultOptionKeys.default: None,
