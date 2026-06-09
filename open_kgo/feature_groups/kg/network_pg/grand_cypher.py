@@ -17,6 +17,7 @@ into the family's row-oriented ``list[dict]`` shape, capped at ``result_limit``.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, ClassVar, Mapping
 
 import networkx as nx
@@ -66,8 +67,6 @@ class GrandCypherReader(NetworkPropertyGraphReader):
                 f"{cls.CONNECTOR_ID}: locator scheme {bad!r} is not permitted; "
                 f"only local file paths or file:// URLs are allowed."
             )
-        from pathlib import Path
-
         loader = _LOADERS.get(Path(str(locator)).suffix.lower())
         if loader is None:
             raise ValueError(

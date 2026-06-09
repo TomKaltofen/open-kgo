@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Callable
 
 import pytest
 
+from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.user import Feature, Options
 
 from open_kgo.feature_groups.kg.errors import InvalidCredentialShape, UnknownTenantError
@@ -128,11 +130,72 @@ class TestPaginatedTupleStoreReader(SaasAuthzContractTestBase):
         which wraps reader exceptions in a bare ``Exception``) so the typed
         error contract is asserted at the reader boundary.
         """
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-
         slot = dict(self.valid_credentials()["paginated_tuple_store"])
         feat = Feature("paginated_tuple_store__bad_cursor", options=Options(context={"cursor_token": "garbage"}))
         fs = FeatureSet()
         fs.add(feat)
+        with pytest.raises(InvalidCredentialShape):
+            PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
+
+    def _slot_for(self, tmp_path: Path, tuples: list[list[str]], **overrides: Any) -> dict[str, Any]:
+        """Write a one-tenant fixture and return a valid slot pointed at it."""
+        fixture = tmp_path / "tuples.json"
+        fixture.write_text(json.dumps({"t": tuples}), encoding="utf-8")
+        slot = dict(self.valid_credentials()["paginated_tuple_store"])
+        slot["locator"] = str(fixture)
+        slot["tenant"] = "t"
+        slot["page_size"] = 100
+        slot.update(overrides)
+        return slot
+
+    def test_duplicate_membership_tuple_expands_member_once(self, tmp_path: Path) -> None:
+        """A group member defined by two identical membership tuples is granted once (dedup)."""
+        slot = self._slot_for(
+            tmp_path,
+            tuples=[
+                ["document", "doc", "viewer", "group:eng#member"],
+                ["group", "eng", "member", "user:erin"],
+                ["group", "eng", "member", "user:erin"],
+            ],
+            expand_paths=["member"],
+        )
+        fs = FeatureSet()
+        fs.add(self.feature_under_test())
+        rows = PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
+        assert [r["user"] for r in rows] == ["user:erin"]
+
+    def test_unresolvable_userset_yields_zero_grants(self, tmp_path: Path) -> None:
+        """A userset referencing an absent/empty group expands to zero grants."""
+        slot = self._slot_for(
+            tmp_path,
+            tuples=[["document", "doc", "viewer", "group:ghost#member"]],
+            expand_paths=["member"],
+        )
+        fs = FeatureSet()
+        fs.add(self.feature_under_test())
+        rows = PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
+        assert rows == []
+
+    def test_bare_string_expand_paths_rejected(self) -> None:
+        """A bare-string ``expand_paths`` raises through the load path.
+
+        A plain ``str`` is iterable, so ``tuple("member")`` would silently
+        become ``("m","e","m","b","e","r")`` and disable expansion with no
+        error; the typed guard rejects it instead.
+        """
+        slot = dict(self.valid_credentials()["paginated_tuple_store"])
+        slot["expand_paths"] = "member"
+        fs = FeatureSet()
+        fs.add(self.feature_under_test())
+        with pytest.raises(InvalidCredentialShape):
+            PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
+
+    @pytest.mark.parametrize("bad", [0, -1, "abc"])
+    def test_invalid_page_size_rejected(self, bad: object) -> None:
+        """A non-positive-int / non-numeric page_size raises InvalidCredentialShape at load time."""
+        slot = dict(self.valid_credentials()["paginated_tuple_store"])
+        slot["page_size"] = bad
+        fs = FeatureSet()
+        fs.add(self.feature_under_test())
         with pytest.raises(InvalidCredentialShape):
             PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)

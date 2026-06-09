@@ -4,7 +4,7 @@ Second concrete in the ``saas_authz`` family alongside
 ``InProcessTupleStoreReader`` (single-page, no expansion). This reader *honors*
 the family surface the first concrete pins off: cursor pagination
 (``pagination_style=cursor`` + ``page_size`` + per-call ``cursor_token``) and
-``expand_paths`` (structural transitive group expansion). It is the family's
+``expand_paths`` (single-pass structural group expansion). It is the family's
 proof that the pagination + expand contract is real.
 
 HONESTY NOTE: like the first concrete, this is a shape-only fake. It does NOT
@@ -28,9 +28,9 @@ from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
-from open_kgo.feature_groups.kg.errors import FixtureLoadError, UnknownTenantError
+from open_kgo.feature_groups.kg.errors import FixtureLoadError, InvalidCredentialShape, UnknownTenantError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
-from open_kgo.feature_groups.kg.mixins import parse_offset_cursor
+from open_kgo.feature_groups.kg.mixins import parse_offset_cursor, parse_page_size
 from open_kgo.feature_groups.kg.saas_authz.base import (
     SaasAuthzFeatureGroup,
     SaasAuthzReader,
@@ -55,6 +55,39 @@ def _validate_tuples(connector_id: str, locator: str, tenant: str, raw: Any) -> 
             )
         out.append((item[0], item[1], item[2], item[3]))
     return out
+
+
+def _validate_expand_paths(connector_id: str, raw: Any) -> tuple[str, ...]:
+    """Coerce the ``expand_paths`` slot value into a tuple of relation strings.
+
+    ``expand_paths`` is ``strict_validation=False`` (no closed enum), so
+    ``_validate_shape`` never inspects it; this reader is the first to honor it
+    and must guard the shape itself (page_size has ``parse_page_size``; this is
+    its sibling guard). ``None`` / absent / empty maps to an empty tuple (the
+    expansion opt-out). A bare ``str``/``bytes`` is rejected even though it is
+    iterable: iterating ``"member"`` would silently yield ``("m","e",...)`` and
+    disable expansion with no error. Non-string elements are likewise rejected
+    with a typed ``InvalidCredentialShape`` rather than failing deep in the walk.
+    """
+    if not raw:
+        return ()
+    if isinstance(raw, (str, bytes)):
+        raise InvalidCredentialShape(
+            f"{connector_id}: expand_paths must be a sequence of relation strings, not a bare "
+            f"{type(raw).__name__} ({raw!r}); wrap a single path in a list (e.g. ['member'])."
+        )
+    try:
+        items = list(raw)
+    except TypeError:
+        raise InvalidCredentialShape(
+            f"{connector_id}: expand_paths must be an iterable of relation strings, got {type(raw).__name__} ({raw!r})."
+        )
+    for item in items:
+        if not isinstance(item, str):
+            raise InvalidCredentialShape(
+                f"{connector_id}: expand_paths entries must be strings, got {type(item).__name__} ({item!r})."
+            )
+    return tuple(items)
 
 
 def _expand_usersets(rows: list[_Tuple], all_tuples: list[_Tuple], expand_paths: tuple[str, ...]) -> list[_Tuple]:
@@ -86,8 +119,11 @@ def _expand_usersets(rows: list[_Tuple], all_tuples: list[_Tuple], expand_paths:
             group_id, _, group_rel = group_ref.partition("#")
             if group_rel in expand_paths:
                 # dict.fromkeys dedupes members defined by repeated membership
-                # tuples while preserving order, so the expansion can't emit the
-                # same (object, user) grant twice.
+                # tuples while preserving order, so a single userset's member
+                # list can't emit the same member twice. This is scoped to one
+                # userset's expansion only: cross-path / global dedup across
+                # different usersets or pass-through rows is NOT done (and not
+                # intended) here.
                 for member_user in dict.fromkeys(members.get((group_id, group_rel), [])):
                     expanded.append((object_type, object_id, relation, member_user))
                 continue
@@ -129,9 +165,9 @@ class PaginatedTupleStoreReader(SaasAuthzReader):
         # entity_type / relationship_type are connector defaults (slot-level).
         entity_type = ctx.slot.get("entity_type")
         relationship_type = ctx.slot.get("relationship_type")
-        expand_paths = tuple(ctx.slot.get("expand_paths") or ())
+        expand_paths = _validate_expand_paths(cls.CONNECTOR_ID, ctx.slot.get("expand_paths"))
         offset = parse_offset_cursor(cls.CONNECTOR_ID, params.get("cursor_token"))
-        page_size = int(ctx.slot.get("page_size", 100))
+        page_size = parse_page_size(cls.CONNECTOR_ID, ctx.slot.get("page_size"), 100)
 
         filtered = [
             t

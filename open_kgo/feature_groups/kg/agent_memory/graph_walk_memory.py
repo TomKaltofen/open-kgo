@@ -12,6 +12,13 @@ Memory data is loaded from a JSON file at ``locator`` (shape:
 ``{user_id: {"nodes": [...], "edges": [...]}}``), the same shape the lexical
 concrete consumes. ``retrieval_mode`` is narrowed to ``graph`` and
 ``pagination_style`` to ``none`` via ``SUPPORTED_VALUES``.
+
+The family-level bi-temporal keys (``valid_at_range`` / ``invalid_at_range`` /
+``reference_time``) are ACCEPTED but NOT APPLIED by this graph-walk concrete:
+the BFS returns reachable memories regardless of temporal validity. The lexical
+sibling (``NetworkxMemoryReader``) honors ``valid_at_range``; this one does not
+yet. This mirrors how the family base documents the ``memory_scope_*`` aliases
+as accepted-but-no-op until a concrete owns the corresponding store.
 """
 
 from __future__ import annotations

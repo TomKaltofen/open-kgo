@@ -4,10 +4,10 @@ The ``kg.fixtures`` module memoises file-backed parses and FDs in
 process-wide ``lru_cache`` instances. Across tests this can produce two
 distinct kinds of cross-test contamination:
 
-- mtime-keyed caches (``_read_json_cached``, ``_read_rdf_graph_cached``)
-  auto-invalidate when the underlying file changes, but a test that
-  inspects identity / call counts can still see entries seeded by an
-  earlier test if it points at the same canonical fixture.
+- mtime-keyed caches (``_read_json_cached``, ``_read_rdf_graph_cached``,
+  ``_read_oxigraph_store_cached``) auto-invalidate when the underlying file
+  changes, but a test that inspects identity / call counts can still see
+  entries seeded by an earlier test if it points at the same canonical fixture.
 - the path-only kuzu cache (``_open_kuzu_database_cached``) cannot
   self-invalidate, so a test that rotates the directory at the same
   path as an earlier test would otherwise get the stale ``Database``

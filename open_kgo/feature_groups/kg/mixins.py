@@ -69,6 +69,31 @@ def parse_offset_cursor(connector_id: str, cursor_token: Any) -> int:
     )
 
 
+def parse_page_size(connector_id: str, value: Any, default: int) -> int:
+    """Validate and return a positive-int ``page_size``, falling back to ``default`` when unset.
+
+    Shared by the cursor/page-paginating concretes (``PaginatedCitationReader``,
+    ``FileFixturePagedRestReader``, ``PaginatedTupleStoreReader``) so the
+    runtime guard lives in one place. ``page_size`` is ``strict_validation=False``
+    by family design (no closed enum), so ``_validate_shape`` never sees it;
+    these are the first concretes to honor the value and must guard it
+    themselves. ``None`` (absent / opt-out) maps to ``default``; otherwise the
+    value must be a non-bool ``int >= 1`` — mirroring ``_validate_result_limit``,
+    bool is rejected explicitly (it is an ``int`` subclass, but a page size of
+    ``True``/``False`` is a caller mistake), and strings / floats / ``< 1``
+    raise ``InvalidCredentialShape`` so a typo surfaces a typed error rather
+    than a raw ``ValueError`` mid-load or a silently wrong slice.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise InvalidCredentialShape(
+            f"{connector_id}: page_size must be a positive int (>= 1, bool not accepted), "
+            f"got {type(value).__name__} {value!r}."
+        )
+    return value
+
+
 _ENTITY_FILTER_KEYS: dict[str, Any] = {
     "entity_type": {
         "explanation": "Object type for the request (e.g. 'document', 'group').",

@@ -13,6 +13,11 @@ The query text comes from the Feature's options context under ``query_text``.
 is reached (short-circuit, not slice-at-end). SELECT results map to
 JSON-binding-shaped dicts; CONSTRUCT/DESCRIBE map to ``s``/``p``/``o`` triple
 rows; ASK maps to a single ``{"boolean": ...}`` row.
+
+Backend divergence (deliberate, additive): unlike the rdflib sibling, which
+yields no rows for non-SELECT shapes (its ``asdict``-skip path), this reader
+emits boolean/triple rows for ASK/CONSTRUCT/DESCRIBE. oxigraph is the more
+complete backend here; the richer output is documented rather than regressed.
 """
 
 from __future__ import annotations
@@ -46,7 +51,7 @@ class OxigraphSparqlReader(RdfSparqlReader):
     }
 
     @classmethod
-    def _connect_from_slot(cls, slot: Mapping[str, Any]) -> Any:
+    def _connect_from_slot(cls, slot: Mapping[str, Any]) -> pyoxigraph.Store:
         """Return a shared, path-cached ``pyoxigraph.Store`` populated from ``slot['locator']``.
 
         Routes through the shared ``load_oxigraph_store`` cache (mtime-keyed)
@@ -66,7 +71,12 @@ class OxigraphSparqlReader(RdfSparqlReader):
                 f"{cls.CONNECTOR_ID}: locator scheme {bad!r} is not permitted; "
                 f"only local file paths or file:// URLs are allowed."
             )
-        return load_oxigraph_store(cls.CONNECTOR_ID, locator)
+        # ``load_oxigraph_store`` is typed ``-> Any`` (it defers the pyoxigraph
+        # import to keep fixtures.py importable without the kg-rdf extra); bind
+        # through a typed local so the declared ``Store`` return holds under
+        # mypy --strict rather than leaking ``Any``.
+        store: pyoxigraph.Store = load_oxigraph_store(cls.CONNECTOR_ID, locator)
+        return store
 
     @classmethod
     def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
@@ -81,9 +91,21 @@ class OxigraphSparqlReader(RdfSparqlReader):
         if isinstance(result, pyoxigraph.QuerySolutions):
             variables = result.variables
             for solution in result:
-                rows.append(
-                    {var.value: (solution[var].value if solution[var] is not None else None) for var in variables}
-                )
+                # Backend divergence (deliberate): SELECT bindings are emitted
+                # as their lexical ``.value`` (a plain ``str``), whereas the
+                # rdflib sibling yields rdflib term objects (URIRef / Literal)
+                # via ``row.asdict()``. oxigraph's ``.value`` drops datatype and
+                # language tags, so a consumer that needs typed terms must use
+                # the rdflib reader. Unbound bindings (e.g. an OPTIONAL variable
+                # with no match) are OMITTED from the row, matching the rdflib
+                # sibling's ``asdict()`` which only carries bound variables, so
+                # the two backends agree on the SELECT row schema.
+                row: dict[str, Any] = {}
+                for var in variables:
+                    term = solution[var]
+                    if term is not None:
+                        row[var.value] = term.value
+                rows.append(row)
                 if len(rows) >= ctx.result_limit:
                     break
             return rows

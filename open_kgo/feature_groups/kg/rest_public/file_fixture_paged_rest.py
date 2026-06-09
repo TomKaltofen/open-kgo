@@ -23,6 +23,7 @@ from typing import Any, ClassVar, Mapping
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
+from open_kgo.feature_groups.kg.mixins import parse_page_size
 from open_kgo.feature_groups.kg.rest_public.base import (
     RestPublicFeatureGroup,
     RestPublicReader,
@@ -61,7 +62,7 @@ class FileFixturePagedRestReader(RestPublicReader):
         ctx = cls._prepare_load(data_access)
         path = cls._connect_from_slot(ctx.slot)
 
-        page_size = int(ctx.slot.get("page_size", 100))
+        page_size = parse_page_size(cls.CONNECTOR_ID, ctx.slot.get("page_size"), 100)
         pages_dir = path if path.is_dir() else path.parent
         page_files = sorted(pages_dir.glob("page_*.json"), key=_page_index)
 

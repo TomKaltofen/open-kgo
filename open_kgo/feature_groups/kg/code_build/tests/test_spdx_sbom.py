@@ -116,6 +116,32 @@ class TestSpdxSbomReader(CodeBuildContractTestBase):
         rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
         assert {r["name"] for r in rows} == {"lib-a", "lib-b"}
 
+    def test_missing_transit_node_blocks_reachability(self) -> None:
+        """A package reachable ONLY through a missing intermediate is not surfaced.
+
+        Fixture chain: ``chain-app DEPENDS_ON chain-missing`` (absent from
+        ``packages``) and ``chain-missing DEPENDS_ON chain-real``. Walking
+        UPSTREAM from chain-app must NOT reach chain-real: the dangling transit
+        node is neither emitted nor traversed, so the only row is the start.
+        """
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        feat = Feature(
+            "spdx_sbom__chain_upstream",
+            options=Options(
+                context={
+                    "start_spdx_id": "SPDXRef-Package-chain-app",
+                    "lineage_direction": "UPSTREAM",
+                    "upstream_depth": 3,
+                    "downstream_depth": 0,
+                }
+            ),
+        )
+        rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
+        names = {r["name"] for r in rows}
+        assert names == {"chain-app"}
+        assert "chain-real" not in names
+
     def test_downstream_walk_finds_dependents(self) -> None:
         from open_kgo.feature_groups.kg.tests._helpers import run_query
 
@@ -132,3 +158,27 @@ class TestSpdxSbomReader(CodeBuildContractTestBase):
         )
         rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
         assert {r["name"] for r in rows} == {"flask", "app"}
+
+    def test_both_direction_unions_upstream_and_downstream(self) -> None:
+        """lineage_direction=BOTH (the default) returns upstream ∪ downstream, no duplicate rows.
+
+        Start at ``flask``: its dependencies (``werkzeug``, ``click``) and its
+        dependents (``app``) are disjoint sets, so the union is duplicate-free.
+        """
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        feat = Feature(
+            "spdx_sbom__both",
+            options=Options(
+                context={
+                    "start_spdx_id": "SPDXRef-Package-flask",
+                    "lineage_direction": "BOTH",
+                    "upstream_depth": 2,
+                    "downstream_depth": 2,
+                }
+            ),
+        )
+        rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
+        names = [r["name"] for r in rows]
+        assert len(names) == len(set(names))
+        assert set(names) == {"flask", "werkzeug", "click", "app"}

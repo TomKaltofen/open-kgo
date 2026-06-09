@@ -1,12 +1,18 @@
 """python-igraph-backed embedded graph reader.
 
 Second concrete in the ``embedded`` family alongside ``NetworkxEmbeddedReader``:
-loads a graph from a fixture file (.gml / .graphml / .edgelist) at ``locator``
-via python-igraph and runs the same family operations (``nodes`` / ``edges`` /
+loads a graph from a fixture file (.gml / .graphml) at ``locator`` via
+python-igraph and runs the same family operations (``nodes`` / ``edges`` /
 ``neighbors``). Demonstrates that the embedded family base generalises across a
 second in-memory graph library; no new family surface is unlocked (igraph,
 like NetworkX, is an embedded in-process backend), so this is backend variety,
 not a new contract branch.
+
+The family-advertised ``edgelist`` format is deliberately NOT supported here
+(see the ``SUPPORTED_VALUES`` narrowing note below): igraph's ``Read_Edgelist``
+yields integer-indexed vertices with no name/label, whereas the NetworkX
+sibling's ``nx.read_edgelist`` yields string node tokens, so the same file
+would produce different row identities across the two embedded backends.
 
 The vertex identity exposed in rows is the first present of ``name`` / ``label``
 / ``id``, falling back to the integer vertex index. The committed GML fixtures
@@ -33,7 +39,6 @@ from open_kgo.feature_groups.kg.fixtures import _rejected_scheme
 _LOADERS: dict[str, Any] = {
     "gml": igraph.Graph.Read_GML,
     "graphml": igraph.Graph.Read_GraphML,
-    "edgelist": igraph.Graph.Read_Edgelist,
 }
 
 
@@ -45,8 +50,7 @@ def _vertex_key(vertex: igraph.Vertex) -> Any:
     NetworkX reader keys rows on the node id (its GML loader relabels nodes to
     their ``label``), so preferring ``name`` then ``label`` keeps the two
     embedded backends' row shapes aligned on the same committed fixtures. The
-    integer-index fallback covers plain edge lists, whose vertices carry no
-    attributes.
+    integer-index fallback only guards label-less GML/GraphML vertices.
     """
     attrs = vertex.attributes()
     for attr in ("name", "label", "id"):
@@ -58,13 +62,18 @@ def _vertex_key(vertex: igraph.Vertex) -> Any:
 
 class IGraphEmbeddedReader(EmbeddedGraphReader):
     CONNECTOR_ID: ClassVar[str] = "igraph_embedded"
-    # Strict-enum dispositions mirror NetworkxEmbeddedReader: every
-    # family-advertised graph_file_format is wired into ``_LOADERS`` and every
-    # operation is dispatched in ``load_data``. Mirroring the full family set
-    # (rather than leaving it implicit) makes a future family-level addition
-    # surface here as a contract failure instead of a silent drop.
+    # Strict-enum dispositions:
+    #   - graph_file_format: NARROWED to {gml, graphml}. The family also
+    #     advertises ``edgelist``, but it is deliberately dropped here:
+    #     igraph's ``Read_Edgelist`` produces integer-indexed, attribute-less
+    #     vertices, so ``_vertex_key`` would return the integer index, whereas
+    #     the NetworkX sibling's ``nx.read_edgelist`` yields string node tokens.
+    #     The same edgelist file would therefore key rows differently across the
+    #     two embedded backends, so honest narrowing (a non-empty subset of the
+    #     family enum) is preferred over a parity lie. ``operation`` still
+    #     mirrors the full family set (every value is dispatched in ``load_data``).
     SUPPORTED_VALUES: ClassVar[Mapping[str, frozenset[Any]]] = {
-        "graph_file_format": frozenset({"gml", "graphml", "edgelist"}),
+        "graph_file_format": frozenset({"gml", "graphml"}),
         "operation": frozenset({"nodes", "edges", "neighbors"}),
     }
 
@@ -107,14 +116,14 @@ class IGraphEmbeddedReader(EmbeddedGraphReader):
             start = params.get("start_node")
             if start is None:
                 raise ValueError(f"{cls.CONNECTOR_ID}: operation=neighbors requires 'start_node'.")
-            start_indices = [v.index for v in graph.vs if _vertex_key(v) == start]
-            if not start_indices:
+            start_index = next((v.index for v in graph.vs if _vertex_key(v) == start), None)
+            if start_index is None:
                 return []
             # ``mode="out"`` matches NetworkxEmbeddedReader, which uses
             # ``DiGraph.neighbors`` (successors). On an undirected graph igraph
             # ignores ``mode`` and returns all neighbors, so the two embedded
             # backends agree on both directed and undirected inputs.
-            neighbors = islice(graph.neighbors(start_indices[0], mode="out"), ctx.result_limit)
+            neighbors = islice(graph.neighbors(start_index, mode="out"), ctx.result_limit)
             return [{"node": _vertex_key(graph.vs[n])} for n in neighbors]
         raise ValueError(f"{cls.CONNECTOR_ID}: unsupported operation={op!r}")
 

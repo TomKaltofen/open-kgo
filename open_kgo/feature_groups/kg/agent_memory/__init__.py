@@ -2,8 +2,8 @@
 
 Hidden-KG family with bi-temporal semantics. Required-with-at-least-one
 ``memory_scope_*`` family of properties; ``valid_at_range`` /
-``invalid_at_range`` / ``reference_time`` for bi-temporal queries; lexical or
-hybrid retrieval mode.
+``invalid_at_range`` / ``reference_time`` for bi-temporal queries; lexical and
+graph retrieval modes are implemented (vector / hybrid remain unimplemented).
 
 PROTOTYPE NOTE: ``NetworkxMemoryReader`` loads its in-process substrate from
 a JSON fixture pointed to by the ``locator`` credential slot

@@ -8,7 +8,7 @@ the same source artifact. This module centralises the
 parse-once / share-many pipeline so every file-backed concrete routes
 through one cache and the connector-lifecycle contract stays consistent.
 
-Three loaders are provided:
+Four loaders are provided:
 
 - ``load_json_fixture(connector_id, locator)`` — open + ``json.load`` + dict
   shape check, memoised by ``(absolute path, mtime_ns)``. Used by the JSON
@@ -21,6 +21,12 @@ Three loaders are provided:
   default Memory store's ``close()`` is a no-op, so the shared graph
   survives the contract test that closes ``connect()``'s return value
   (verified empirically against rdflib 7.x).
+- ``load_oxigraph_store(connector_id, locator)`` — parse the same RDF
+  serialisations into an in-memory ``pyoxigraph.Store``, memoised by
+  ``(absolute path, mtime_ns)``. The oxigraph sibling of ``load_rdf_graph``;
+  the pyoxigraph import is deferred to call time so the module imports
+  without the ``kg-rdf`` extra. The returned store is shared across calls;
+  callers run read-only SPARQL against it and MUST NOT mutate it.
 - ``load_kuzu_database(connector_id, locator)`` — open a ``kuzu.Database``
   directory, memoised by ``absolute path`` only. Mtime keying does NOT
   apply: Kuzu mutates the database directory as it runs its own queries,

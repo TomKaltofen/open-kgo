@@ -21,6 +21,7 @@ from open_kgo.feature_groups.kg.embedded.tests.kg_embedded_contract import (
 
 
 _FIXTURE_GML = Path(__file__).parent / "fixtures" / "triangle.gml"
+_FIXTURE_DIRECTED_GML = Path(__file__).parent / "fixtures" / "directed_chain.gml"
 
 
 class TestIGraphEmbeddedReader(EmbeddedContractTestBase):
@@ -83,3 +84,45 @@ class TestIGraphEmbeddedReader(EmbeddedContractTestBase):
         creds = {cls.CONNECTOR_ID: {"locator": "http://example.com/evil.gml"}}
         with pytest.raises(ValueError, match="scheme"):
             cls.connect(creds)
+
+    def test_directed_neighbors_are_out_successors_only(self) -> None:
+        """On a DIRECTED graph, neighbors(mode="out") yields successors only.
+
+        The undirected ``triangle.gml`` cannot exercise the directed-successor
+        path (igraph ignores ``mode`` on undirected graphs). The walk starts at
+        ``bob`` (in=``{alice}``, out=``{carol}``) precisely so the fix is
+        guarded: out-neighbors are ``["carol"]``, whereas a regression back to
+        igraph's default ``mode="all"`` would also include the predecessor
+        ``alice``. The result matches the NetworkX sibling's ``DiGraph.neighbors``
+        (successors) on the same fixture.
+        """
+        # Import the sibling module so its FeatureGroup is registered even when
+        # this test file runs in isolation (plugin discovery is import-driven).
+        import open_kgo.feature_groups.kg.embedded.networkx_embedded  # noqa: F401
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        slot = {"locator": str(_FIXTURE_DIRECTED_GML), "graph_file_format": "gml"}
+        feat = Feature(
+            "igraph_embedded__dir_neighbors",
+            options=Options(context={"operation": "neighbors", "start_node": "bob"}),
+        )
+        igraph_rows = run_query("igraph_embedded", slot, feat)
+        assert sorted(r["node"] for r in igraph_rows) == ["carol"]
+
+        # Parity with the NetworkX sibling's DiGraph.neighbors (successors) on
+        # the same directed fixture.
+        nx_feat = Feature(
+            "networkx_embedded__dir_neighbors",
+            options=Options(context={"operation": "neighbors", "start_node": "bob"}),
+        )
+        nx_rows = run_query("networkx_embedded", slot, nx_feat)
+        assert sorted(r["node"] for r in igraph_rows) == sorted(r["node"] for r in nx_rows)
+
+    def test_directed_edges_operation(self) -> None:
+        """The ``edges`` operation (dispatched but otherwise unasserted) returns the directed edges."""
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        slot = {"locator": str(_FIXTURE_DIRECTED_GML), "graph_file_format": "gml"}
+        feat = Feature("igraph_embedded__edges", options=Options(context={"operation": "edges"}))
+        rows = run_query("igraph_embedded", slot, feat)
+        assert sorted((r["src"], r["dst"]) for r in rows) == [("alice", "bob"), ("bob", "carol")]

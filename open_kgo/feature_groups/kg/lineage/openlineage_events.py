@@ -53,8 +53,16 @@ def _build_dataset_graph(
     for event in events:
         if not isinstance(event, dict):
             continue
-        inputs = [n for n in (_register(d) for d in event.get("inputs", [])) if n is not None]
-        outputs = [n for n in (_register(d) for d in event.get("outputs", [])) if n is not None]
+        # ``event.get("inputs", [])`` only defaults on an ABSENT key; a present
+        # ``"inputs": null`` returns ``None`` and ``for d in None`` would raise,
+        # aborting the whole walk. Coerce non-list values to ``[]`` so a single
+        # malformed event is skipped defensively (per this function's contract).
+        raw_inputs = event.get("inputs")
+        raw_outputs = event.get("outputs")
+        inputs_src = raw_inputs if isinstance(raw_inputs, list) else []
+        outputs_src = raw_outputs if isinstance(raw_outputs, list) else []
+        inputs = [n for n in (_register(d) for d in inputs_src) if n is not None]
+        outputs = [n for n in (_register(d) for d in outputs_src) if n is not None]
         for out in outputs:
             for inp in inputs:
                 upstream.setdefault(out, set()).add(inp)

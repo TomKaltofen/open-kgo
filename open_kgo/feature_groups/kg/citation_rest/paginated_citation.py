@@ -27,7 +27,7 @@ from open_kgo.feature_groups.kg.citation_rest.base import (
     CitationRestReader,
 )
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
-from open_kgo.feature_groups.kg.mixins import parse_offset_cursor
+from open_kgo.feature_groups.kg.mixins import parse_offset_cursor, parse_page_size
 
 
 class PaginatedCitationReader(CitationRestReader):
@@ -58,7 +58,7 @@ class PaginatedCitationReader(CitationRestReader):
         depth = int(params.get("hierarchy_depth", 1))
         entity_type = params.get("entity_type")
         offset = parse_offset_cursor(cls.CONNECTOR_ID, params.get("cursor_token"))
-        page_size = int(ctx.slot.get("page_size", 100))
+        page_size = parse_page_size(cls.CONNECTOR_ID, ctx.slot.get("page_size"), 100)
 
         # BFS the citation graph from stable_id out to ``depth`` hops.
         collected: list[str] = []

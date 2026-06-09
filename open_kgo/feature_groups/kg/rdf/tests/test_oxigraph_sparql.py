@@ -97,6 +97,41 @@ class TestOxigraphSparqlReader(RdfContractTestBase):
         rows = run_query("oxigraph_sparql", self.valid_credentials()["oxigraph_sparql"], feat)
         assert rows == [{"boolean": True}]
 
+    def test_optional_unbound_variable_key_is_omitted(self) -> None:
+        """An OPTIONAL variable that never binds is OMITTED from the row, not set to None.
+
+        No subject in ``sample.ttl`` has ``foaf:nick``, so ``?nick`` is unbound
+        in every solution. The emitted rows must carry only the bound ``?s`` key
+        (key set ``{"s"}``), matching the rdflib sibling's ``asdict()`` which
+        omits unbound variables — a cross-backend SELECT-schema parity assertion.
+        """
+        import open_kgo.feature_groups.kg.rdf.rdflib_sparql  # noqa: F401
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        query = (
+            "PREFIX foaf: <http://xmlns.com/foaf/0.1/> "
+            "SELECT ?s ?nick WHERE { ?s foaf:knows ?o . OPTIONAL { ?s foaf:nick ?nick } }"
+        )
+        ox_feat = Feature("oxigraph_sparql__optional", options=Options(context={"query_text": query}))
+        ox_rows = run_query("oxigraph_sparql", self.valid_credentials()["oxigraph_sparql"], ox_feat)
+        assert len(ox_rows) == 3
+        assert all(set(row) == {"s"} for row in ox_rows)
+
+        # Cross-backend parity: the rdflib sibling omits the unbound key too, so
+        # the per-row key sets match (values differ by the documented term-vs-str
+        # divergence, hence key-set comparison rather than full-row equality).
+        rdflib_slot = {
+            "locator": str(_FIXTURE_TTL),
+            "result_format": "application/sparql-results+json",
+            "reasoning_profile": "none",
+            "result_limit": 100,
+        }
+        rdflib_feat = Feature("rdflib_sparql__optional", options=Options(context={"query_text": query}))
+        rdflib_rows = run_query("rdflib_sparql", rdflib_slot, rdflib_feat)
+        ox_key_sets = sorted(tuple(sorted(row)) for row in ox_rows)
+        rdflib_key_sets = sorted(tuple(sorted(row)) for row in rdflib_rows)
+        assert ox_key_sets == rdflib_key_sets
+
     def test_http_locator_rejected(self) -> None:
         """connect() must refuse remote schemes (no network IO at fetch time)."""
         cls = self.connector_reader_class()

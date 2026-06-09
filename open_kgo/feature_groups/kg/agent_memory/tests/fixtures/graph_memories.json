@@ -8,7 +8,8 @@
     ],
     "edges": [
       {"src": "m1", "tgt": "m2", "relation": "refines"},
-      {"src": "m2", "tgt": "m3", "relation": "refines"}
+      {"src": "m2", "tgt": "m3", "relation": "refines"},
+      {"src": "m1", "tgt": "m3", "relation": "summarizes"}
     ]
   }
 }

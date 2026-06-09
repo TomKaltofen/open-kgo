@@ -91,11 +91,15 @@ def _walk_packages(
                 if neighbour in seen:
                     continue
                 seen.add(neighbour)
+                # A neighbour absent from ``packages_index`` is a dangling edge:
+                # it is neither emitted NOR traversed, so a real package reachable
+                # only THROUGH a missing intermediate stays unreachable (the
+                # "dangling edges skipped" contract covers transit nodes too).
                 if neighbour in packages_index:
                     out.append(copy_cached_row(packages_index[neighbour]))
                     if len(out) >= remaining:
                         return out
-                next_frontier.append(neighbour)
+                    next_frontier.append(neighbour)
         if not next_frontier:
             break
         frontier = next_frontier
