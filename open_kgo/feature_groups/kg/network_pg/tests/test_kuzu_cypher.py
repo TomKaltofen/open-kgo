@@ -10,21 +10,25 @@ follow-up. Two parts:
 
 1. Runtime build vs committed fixture: Kuzu's on-disk store is a binary,
    version-coupled format, so a checked-in ``.kuzu`` database could fail to open
-   after a ``kuzu`` version bump (and ``exclude-newer`` only defers upgrades, it
-   does not pin forever). Building a tiny three-node database at test time is
-   version-agnostic and cheap. The sibling concrete ``grand_cypher`` reads a
-   committed ``.gml`` text fixture, so the network_pg family already demonstrates
+   after a ``kuzu`` version bump. ``kuzu`` is subject to the default
+   ``exclude-newer`` 7-day window (it is not in the longer ``exclude-newer-package``
+   pin, which covers only the mloda packages), so it upgrades after that window
+   rather than being held forever. Building a tiny three-node database at test
+   time is version-agnostic and cheap. The sibling concrete ``grand_cypher`` reads
+   a committed ``.gml`` text fixture, so the network_pg family already demonstrates
    both shapes (static text fixture and built backend).
-2. Fresh temp path per test (not a shared, seed-once database): the reader caches
-   ``kuzu.Database`` process-wide keyed by absolute path (see
-   ``kg.fixtures.load_kuzu_database``) and the embedded engine holds an exclusive
-   lock on the directory. ``kg/conftest.py`` clears that cache around every test,
-   and its stated safety property is "no test re-uses a kuzu locator path that an
-   earlier test cleaned up". A unique ``mkdtemp`` path per test preserves that
-   isolation and sidesteps any lock/cache-finalizer race that a single shared
-   path reused across tests would invite. The seed is three nodes, so the
-   per-test rebuild cost is negligible; it is paid deliberately to keep each test
-   on an isolated database path.
+2. Fresh temp path per test (not a shared, seed-once database): a shared
+   seed-once database is technically viable. The reader caches ``kuzu.Database``
+   process-wide keyed by absolute path (see ``kg.fixtures.load_kuzu_database``),
+   and ``kg/conftest.py`` clears that cache around every test, so cache staleness
+   across a reused path is already neutralised: under CPython the ``cache_clear``
+   drops the only reference and the native handle (with its directory lock) is
+   finalised before the next open. We keep the per-test rebuild simply because it
+   is the most obviously isolated option and the cost is immaterial (a three-node
+   seed; the network_pg suite runs in a couple of seconds), so collapsing it to a
+   shared database would trade clarity for no measurable gain. A unique
+   ``mkdtemp`` path is also incidentally robust against delayed finalisation on a
+   non-refcounting interpreter, but that is not the reason for the choice.
 
 PROTOTYPE NOTE: this exercises the network_pg property layout against a real
 Cypher engine but does NOT exercise read_consistency / transaction_mode
