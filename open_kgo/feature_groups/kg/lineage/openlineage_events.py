@@ -2,17 +2,30 @@
 
 Second concrete in the ``lineage`` family alongside ``DbtManifestReader``.
 OpenLineage is an open standard whose run events are emitted as JSON; each
-event names a ``job`` plus its ``inputs`` and ``outputs`` datasets. A dataset
-edge ``input -> output`` is derived per event (every input is upstream of every
-output of the same run), yielding a dataset-level lineage graph we walk from a
-starting ``asset_urn``. Like dbt, this is a static-artifact source (stdlib JSON,
-no new dependency); it adds backend/pedigree variety on the family's
-UPSTREAM / DOWNSTREAM / BOTH walk rather than a new family surface.
+event names a ``job`` plus its ``inputs`` and ``outputs`` datasets. Inputs and
+outputs are aggregated per ``run.runId`` across all events of that run, and a
+dataset edge ``input -> output`` is derived per run (every input is upstream of
+every output of the same run). This matters because standard emitters report
+inputs on the START event and outputs on the COMPLETE event of the same run;
+per-event pairing would see no edges at all. ``eventType`` is not consulted:
+every event of a run contributes its inputs/outputs to the run-level union
+regardless of START/RUNNING/COMPLETE/etc. Events missing a usable
+``run.runId`` cannot be correlated and fall back to a per-event pairing of
+their own inputs and outputs. The result is a dataset-level lineage graph we
+walk from a starting ``asset_urn``. Like dbt, this is a static-artifact source
+(stdlib JSON, no new dependency); it adds backend/pedigree variety on the
+family's UPSTREAM / DOWNSTREAM / BOTH walk rather than a new family surface.
 
 The fixture top level is an object ``{"events": [<run event>, ...]}`` (the
 ``load_json_fixture`` contract requires a dict at the top level; a bare event
-array would be rejected). Datasets are identified by their ``name`` field;
-``namespace`` is carried through into each row.
+array would be rejected). A present ``"events"`` value that is not a list is a
+malformed artifact, not a malformed event, and raises the family's typed
+``FixtureLoadError`` rather than leaking a raw ``TypeError`` from iteration.
+Datasets are identified by their ``name`` field ONLY; ``namespace`` is carried
+through into each row but does not participate in identity, so two datasets
+with the same name in different namespaces are conflated into one graph node
+that carries the first-seen namespace. This keying is load-bearing (the row
+shape and ``asset_urn`` matching depend on it) and is a documented contract.
 """
 
 from __future__ import annotations
@@ -21,6 +34,7 @@ from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.errors import FixtureLoadError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
 from open_kgo.feature_groups.kg.lineage.base import LineageFeatureGroup, LineageReader
 
@@ -33,14 +47,25 @@ def _build_dataset_graph(
     ``upstream_map[ds]`` is the set of datasets ``ds`` was produced from
     (parents); ``downstream_map[ds]`` is the set of datasets produced from
     ``ds`` (children). ``namespace_index`` records the first-seen namespace per
-    dataset name. Malformed entries (non-dict event, non-list inputs/outputs)
-    are skipped defensively: a lineage artifact assembled from many emitters
-    routinely carries partial events, and one bad event should not abort the
-    walk.
+    dataset name. Inputs and outputs are aggregated per ``run.runId`` across
+    all of that run's events (regardless of ``eventType``), then the cartesian
+    ``input x output`` is taken per run: a standard emitter reports inputs on
+    START and outputs on COMPLETE, so per-event pairing would derive no edges.
+    Events without a usable ``run.runId`` (missing, or non-dict ``run``)
+    cannot be correlated and defensively form their own per-event group.
+    Malformed entries (non-dict event, non-list inputs/outputs) are skipped
+    defensively: a lineage artifact assembled from many emitters routinely
+    carries partial events, and one bad event should not abort the walk.
     """
     upstream: dict[str, set[str]] = {}
     downstream: dict[str, set[str]] = {}
     namespaces: dict[str, str] = {}
+    # Group key is ("run", runId) for correlatable events; uncorrelatable
+    # events get a unique ("event", index) key so they pair only with
+    # themselves. The two tag strings keep the key spaces disjoint (a runId
+    # that happens to look like an integer index cannot collide).
+    group_inputs: dict[tuple[str, str], set[str]] = {}
+    group_outputs: dict[tuple[str, str], set[str]] = {}
 
     def _register(dataset: Any) -> str | None:
         if not isinstance(dataset, dict) or "name" not in dataset:
@@ -50,9 +75,12 @@ def _build_dataset_graph(
             namespaces[name] = str(dataset.get("namespace", ""))
         return name
 
-    for event in events:
+    for index, event in enumerate(events):
         if not isinstance(event, dict):
             continue
+        run = event.get("run")
+        run_id = run.get("runId") if isinstance(run, dict) else None
+        key = ("run", str(run_id)) if run_id is not None else ("event", str(index))
         # ``event.get("inputs", [])`` only defaults on an ABSENT key; a present
         # ``"inputs": null`` returns ``None`` and ``for d in None`` would raise,
         # aborting the whole walk. Coerce non-list values to ``[]`` so a single
@@ -61,8 +89,11 @@ def _build_dataset_graph(
         raw_outputs = event.get("outputs")
         inputs_src = raw_inputs if isinstance(raw_inputs, list) else []
         outputs_src = raw_outputs if isinstance(raw_outputs, list) else []
-        inputs = [n for n in (_register(d) for d in inputs_src) if n is not None]
-        outputs = [n for n in (_register(d) for d in outputs_src) if n is not None]
+        group_inputs.setdefault(key, set()).update(n for n in (_register(d) for d in inputs_src) if n is not None)
+        group_outputs.setdefault(key, set()).update(n for n in (_register(d) for d in outputs_src) if n is not None)
+
+    for key, outputs in group_outputs.items():
+        inputs = group_inputs.get(key, set())
         for out in outputs:
             for inp in inputs:
                 upstream.setdefault(out, set()).add(inp)
@@ -76,16 +107,27 @@ def _walk(
     start: str,
     depth: int,
     remaining: int,
+    seen: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """BFS along ``edge_map`` from ``start`` up to ``depth`` hops; emit dataset rows.
 
     Aborts once ``remaining`` rows have been emitted so ``result_limit`` bounds
     the work walked, not just the output sliced (mirrors ``DbtManifestReader``).
+    When ``seen`` is given it is caller-owned and mutated in place:
+    ``load_data`` passes ONE set (seeded with the start node) to both
+    directional walks so a node that is both upstream and downstream of the
+    start (a cycle through the start) is emitted once under
+    ``lineage_direction=BOTH`` and bills ``result_limit`` once. A node already
+    emitted by an earlier walk is also not re-expanded. ``seen=None`` builds a
+    fresh per-walk set seeded with ``start`` (single-direction semantics,
+    mirrors the dbt sibling's ``_walk_with_node``).
     """
     if depth <= 0 or remaining <= 0:
         return []
+    if seen is None:
+        seen = set()
+    seen.add(start)
     out: list[dict[str, Any]] = []
-    seen: set[str] = {start}
     frontier: list[str] = [start]
     for _ in range(depth):
         next_frontier: list[str] = []
@@ -135,16 +177,30 @@ class OpenLineageReader(LineageReader):
         result_limit = ctx.result_limit
 
         events = document.get("events", [])
+        if not isinstance(events, list):
+            # A non-list top-level "events" is a malformed ARTIFACT (the
+            # defensive-skip contract covers malformed individual events, not
+            # an uniterable document); surface the family's typed error rather
+            # than leaking a raw TypeError from iteration.
+            raise FixtureLoadError(
+                cls.CONNECTOR_ID,
+                str(ctx.slot.get("locator")),
+                f"top-level 'events' must be a list, got {type(events).__name__}.",
+            )
         upstream_map, downstream_map, namespaces = _build_dataset_graph(events)
 
         rows: list[dict[str, Any]] = []
         if asset_urn in namespaces and result_limit > 0:
             rows.append({"name": asset_urn, "namespace": namespaces[asset_urn]})
 
+        # One seen set shared across both directional walks: under BOTH, a
+        # node reachable in both directions (cycle through the start) must be
+        # emitted once and bill result_limit once.
+        seen: set[str] = {asset_urn}
         if direction in ("UPSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk(upstream_map, namespaces, asset_urn, upstream_depth, result_limit - len(rows)))
+            rows.extend(_walk(upstream_map, namespaces, asset_urn, upstream_depth, result_limit - len(rows), seen))
         if direction in ("DOWNSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk(downstream_map, namespaces, asset_urn, downstream_depth, result_limit - len(rows)))
+            rows.extend(_walk(downstream_map, namespaces, asset_urn, downstream_depth, result_limit - len(rows), seen))
 
         return rows
 

@@ -27,6 +27,27 @@ _OPERATIONS: dict[str, str] = {
 }
 
 
+class UnknownStartNodeError(ValueError):
+    """Raised by embedded connectors when ``start_node`` is not present in the loaded graph.
+
+    Shaped like ``UnknownTenantError`` / ``UnknownMemoryScopeError`` in
+    ``kg.errors``: per-call validation can enforce that ``start_node`` is
+    *present* for ``operation=neighbors``, but cannot enforce that the value
+    *exists* in a given graph file, so the concrete reader resolves it at
+    runtime and raises this typed error. Every embedded concrete MUST raise
+    this same error on an unknown ``start_node``; the family thesis is
+    backend variety with identical behavior, and before this contract the
+    two backends diverged (igraph silently returned ``[]``, NetworkX leaked
+    a raw ``networkx.NetworkXError``). Enforced family-wide by the
+    ``test_unknown_start_node_raises_typed_error`` contract test.
+    """
+
+    def __init__(self, connector_id: str, start_node: Any) -> None:
+        super().__init__(f"{connector_id}: start_node {start_node!r} is not present in the loaded graph.")
+        self.connector_id = connector_id
+        self.start_node = start_node
+
+
 class EmbeddedGraphReader(ParamReader):
     """Family base for embedded graph backends.
 

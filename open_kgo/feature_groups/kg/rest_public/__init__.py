@@ -8,8 +8,10 @@ PROTOTYPE NOTE: both concretes walk ``page_*.json`` files on disk.
 ``FileFixtureRestReader`` narrows ``pagination_style`` to ``cursor`` and
 terminates on ``meta.next_cursor`` (dropping ``page_size``).
 ``FileFixturePagedRestReader`` narrows it to ``page`` and *honors*
-``page_size``, terminating when a page returns fewer than ``page_size`` rows —
-so the family's counter-pagination branch is now exercised. ``rate_limit_pace``,
+``page_size``, terminating when a page returns fewer than ``page_size`` rows,
+so the termination half of the family's counter-pagination branch is
+exercised (there is no per-call page selector; every call concatenates from
+page 1 until termination). ``rate_limit_pace``,
 ``user_agent``, and ``dataset_version`` remain accepted at the property layer
 and never read (there is no real HTTP client to apply them to). ``entity_type``
 is not a property-layer no-op: it is a per-call param that both shipped

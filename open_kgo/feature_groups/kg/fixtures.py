@@ -267,23 +267,39 @@ def _read_oxigraph_store_cached(abs_path: str, mtime_ns: int) -> Any:
 
     The RDF serialisation format is selected from the file extension
     (defaulting to Turtle) since oxigraph's loader needs it explicitly,
-    unlike rdflib's content auto-detection. pyoxigraph raises the builtin
-    ``SyntaxError`` on malformed RDF (verified against pyoxigraph 0.5.x);
-    ``ValueError`` / ``UnicodeDecodeError`` cover bad bytes. The pyoxigraph
-    import is deferred so the module imports without the ``kg-rdf`` extra.
+    unlike rdflib's content auto-detection. A suffix outside the known map
+    keeps the documented Turtle default, but the parse-failure message then
+    names the assumed format and the unknown suffix so a misleading "not
+    parseable as RDF" on e.g. a ``.owl`` file is self-explaining. The file
+    object is passed to ``Store.load`` directly (pyoxigraph 0.5.x accepts
+    binary I/O objects) so the 1-100MB artifacts the module docstring sizes
+    are streamed rather than buffered via ``f.read()``. pyoxigraph raises
+    the builtin ``SyntaxError`` on malformed RDF (verified against
+    pyoxigraph 0.5.x); ``ValueError`` / ``UnicodeDecodeError`` cover bad
+    bytes. The pyoxigraph import is deferred so the module imports without
+    the ``kg-rdf`` extra.
     """
     import pyoxigraph
 
-    fmt_name = _OXIGRAPH_FORMAT_BY_SUFFIX.get(Path(abs_path).suffix.lower(), "TURTLE")
+    suffix = Path(abs_path).suffix.lower()
+    fmt_name = _OXIGRAPH_FORMAT_BY_SUFFIX.get(suffix)
+    if fmt_name is None:
+        fmt_name = "TURTLE"
+        format_note = (
+            f"parsed as TURTLE based on suffix {suffix!r} which is not in the known suffix map "
+            f"{sorted(_OXIGRAPH_FORMAT_BY_SUFFIX)}"
+        )
+    else:
+        format_note = f"parsed as {fmt_name} based on suffix {suffix!r}"
     rdf_format = getattr(pyoxigraph.RdfFormat, fmt_name)
     store = pyoxigraph.Store()
     try:
         with open(abs_path, "rb") as f:
-            store.load(f.read(), format=rdf_format)
+            store.load(f, format=rdf_format)
     except OSError as exc:
         raise _FixtureLoadProblem(f"cannot open RDF locator file: {exc}") from exc
     except (SyntaxError, ValueError, UnicodeDecodeError) as exc:
-        raise _FixtureLoadProblem(f"locator is not parseable as RDF: {exc}") from exc
+        raise _FixtureLoadProblem(f"locator is not parseable as RDF ({format_note}): {exc}") from exc
     return store
 
 

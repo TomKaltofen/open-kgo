@@ -4,6 +4,11 @@ Unlike the CycloneDX concrete (flat component list), this reader walks the
 SPDX ``DEPENDS_ON`` graph, so the tests assert the family's TraversalMixin
 keys (``lineage_direction`` / ``upstream_depth`` / ``downstream_depth``) are
 honored end to end.
+
+``fixtures/sample.spdx.json`` is a minimal parser fixture, not schema-valid
+SPDX 2.3 (it omits ``documentNamespace``, ``creationInfo``, and per-package
+``downloadLocation``); the reader only consumes ``packages`` and
+``relationships``.
 """
 
 from __future__ import annotations
@@ -11,12 +16,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+import pytest
+from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.user import Feature, Options
 
 from open_kgo.feature_groups.kg.code_build.spdx_sbom import SpdxSbomReader
 from open_kgo.feature_groups.kg.code_build.tests.kg_code_build_contract import (
     CodeBuildContractTestBase,
 )
+from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "sample.spdx.json"
@@ -163,7 +171,9 @@ class TestSpdxSbomReader(CodeBuildContractTestBase):
         """lineage_direction=BOTH (the default) returns upstream ∪ downstream, no duplicate rows.
 
         Start at ``flask``: its dependencies (``werkzeug``, ``click``) and its
-        dependents (``app``) are disjoint sets, so the union is duplicate-free.
+        dependents (``app``) are disjoint sets, so this case alone cannot catch
+        double emission; the overlapping-direction guarantee is pinned by
+        ``test_cycle_under_both_emits_no_duplicates`` below.
         """
         from open_kgo.feature_groups.kg.tests._helpers import run_query
 
@@ -182,3 +192,135 @@ class TestSpdxSbomReader(CodeBuildContractTestBase):
         names = [r["name"] for r in rows]
         assert len(names) == len(set(names))
         assert set(names) == {"flask", "werkzeug", "click", "app"}
+
+    def test_cycle_under_both_emits_no_duplicates(self) -> None:
+        """A 2-cycle walked with BOTH emits each package exactly once.
+
+        Fixture: ``cycle-a DEPENDS_ON cycle-b`` and ``cycle-b DEPENDS_ON
+        cycle-a``, so cycle-b is reachable both upstream and downstream of
+        cycle-a. The two walks share one seen set; without it the result
+        would be [cycle-a, cycle-b, cycle-b] and result_limit would be
+        double-billed.
+        """
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        feat = Feature(
+            "spdx_sbom__cycle_both",
+            options=Options(
+                context={
+                    "start_spdx_id": "SPDXRef-Package-cycle-a",
+                    "lineage_direction": "BOTH",
+                    "upstream_depth": 3,
+                    "downstream_depth": 3,
+                }
+            ),
+        )
+        rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
+        names = [r["name"] for r in rows]
+        assert sorted(names) == ["cycle-a", "cycle-b"]
+
+    def test_self_loop_emits_no_duplicate(self) -> None:
+        """A self-loop (``self-loop DEPENDS_ON self-loop``) yields only the start row once."""
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        feat = Feature(
+            "spdx_sbom__self_loop",
+            options=Options(
+                context={
+                    "start_spdx_id": "SPDXRef-Package-self-loop",
+                    "lineage_direction": "BOTH",
+                    "upstream_depth": 2,
+                    "downstream_depth": 2,
+                }
+            ),
+        )
+        rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
+        assert [r["name"] for r in rows] == ["self-loop"]
+
+    def test_upstream_depth_zero_yields_only_start(self) -> None:
+        """upstream_depth=0 with UPSTREAM disables the walk; only the start row is emitted."""
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        feat = Feature(
+            "spdx_sbom__upstream_d0",
+            options=Options(
+                context={
+                    "start_spdx_id": "SPDXRef-Package-app",
+                    "lineage_direction": "UPSTREAM",
+                    "upstream_depth": 0,
+                    "downstream_depth": 0,
+                }
+            ),
+        )
+        rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
+        assert [r["name"] for r in rows] == ["app"]
+
+    @pytest.mark.parametrize(
+        "start",
+        ["SPDXRef-Package-totally-unknown", "SPDXRef-Package-chain-missing"],
+    )
+    def test_missing_start_is_neither_emitted_nor_traversed(self, start: str) -> None:
+        """A start absent from ``packages`` returns [] (the dangling-node rule covers the start too).
+
+        ``chain-missing`` is the stronger case: it HAS an outgoing edge to the
+        real package chain-real, but a dangling start is not traversed, so
+        nothing is reachable from it.
+        """
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        feat = Feature(
+            "spdx_sbom__missing_start",
+            options=Options(
+                context={
+                    "start_spdx_id": start,
+                    "lineage_direction": "BOTH",
+                    "upstream_depth": 3,
+                    "downstream_depth": 3,
+                }
+            ),
+        )
+        rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
+        assert rows == []
+
+    def test_result_limit_truncates_walk(self) -> None:
+        """result_limit=2 stops the walk after the start row plus one dependency."""
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        slot = dict(self.valid_credentials()["spdx_sbom"])
+        slot["result_limit"] = 2
+        feat = self.feature_under_test()
+        rows = run_query("spdx_sbom", slot, feat)
+        names = [r["name"] for r in rows]
+        assert len(names) == 2
+        assert names[0] == "app"
+
+    def test_empty_start_spdx_id_raises_typed_error(self) -> None:
+        """start_spdx_id="" passes the REQUIRED_PARAMS is-not-None check but is rejected typed.
+
+        A missing/None start never reaches load_data (MissingRequiredParamsError
+        fires in build_params); the empty string is the only falsey value that
+        does, and it must raise InvalidCredentialShape, not a bare ValueError.
+        """
+        fs = FeatureSet()
+        fs.add(
+            Feature(
+                "spdx_sbom__empty_start",
+                options=Options(context={"start_spdx_id": ""}),
+            )
+        )
+        with pytest.raises(InvalidCredentialShape, match="non-empty SPDXID"):
+            SpdxSbomReader.load_data(self.valid_credentials(), fs)
+
+    @pytest.mark.parametrize("bad", ["2", "garbage", 1.5, True, False, -1])
+    def test_non_int_or_negative_depth_rejected(self, bad: Any) -> None:
+        """Depths must be non-bool ints >= 0; strings, floats, bools, and negatives raise typed."""
+        for key in ("upstream_depth", "downstream_depth"):
+            fs = FeatureSet()
+            fs.add(
+                Feature(
+                    "spdx_sbom__bad_depth",
+                    options=Options(context={"start_spdx_id": "SPDXRef-Package-app", key: bad}),
+                )
+            )
+            with pytest.raises(InvalidCredentialShape, match=key):
+                SpdxSbomReader.load_data(self.valid_credentials(), fs)

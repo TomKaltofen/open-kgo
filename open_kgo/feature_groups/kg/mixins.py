@@ -18,6 +18,7 @@ defaults; lineage / code_build use per-call params).
 
 from __future__ import annotations
 
+import re
 from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
@@ -44,28 +45,35 @@ _CURSOR_FAMILY_STYLES: frozenset[str] = frozenset(
 )
 
 
+# Exact token grammar for parse_offset_cursor: "offset:" followed by one or
+# more ASCII decimal digits. fullmatch() anchors both ends.
+_OFFSET_CURSOR_RE = re.compile(r"offset:[0-9]+")
+
+
 def parse_offset_cursor(connector_id: str, cursor_token: Any) -> int:
-    """Parse an opaque ``"offset:<N>"`` cursor token into a non-negative integer offset.
+    """Parse an ``"offset:<N>"`` cursor token into a non-negative integer offset.
 
     Shared by the cursor-paginating concretes (``PaginatedCitationReader``,
-    ``PaginatedTupleStoreReader``) so the opaque-token convention lives in one
-    place alongside ``PaginationMixin``. ``None`` (the first-page case) maps to
-    offset 0; a malformed token raises ``InvalidCredentialShape`` so a
-    hand-typed cursor surfaces a typed error rather than silently restarting
-    from the first page.
+    ``PaginatedTupleStoreReader``) so the token convention lives in one place
+    alongside ``PaginationMixin``. ``None`` (the first-page case) maps to
+    offset 0. The grammar is exactly ``^offset:[0-9]+$``: after the
+    ``offset:`` prefix the remainder must be one or more ASCII decimal
+    digits. Leading zeros are plain decimal (``"offset:007"`` is 7), but
+    signs (``"offset:+5"``), whitespace (``"offset: 5"``), underscore
+    separators (``"offset:5_0"``, which a bare ``int()`` would silently parse
+    as 50), and non-ASCII digits are all malformed and raise
+    ``InvalidCredentialShape``, so a hand-typed cursor surfaces a typed error
+    rather than silently restarting from the first page or landing on the
+    wrong offset.
     """
     if cursor_token is None:
         return 0
     token = str(cursor_token)
-    if token.startswith("offset:"):
-        try:
-            offset = int(token.split(":", 1)[1])
-        except ValueError:
-            offset = -1
-        if offset >= 0:
-            return offset
+    if _OFFSET_CURSOR_RE.fullmatch(token):
+        return int(token.removeprefix("offset:"))
     raise InvalidCredentialShape(
-        f"{connector_id}: cursor_token {cursor_token!r} is malformed; expected 'offset:<N>' with N >= 0."
+        f"{connector_id}: cursor_token {cursor_token!r} is malformed; expected 'offset:<N>' "
+        f"with N one or more ASCII decimal digits."
     )
 
 
@@ -78,7 +86,7 @@ def parse_page_size(connector_id: str, value: Any, default: int) -> int:
     by family design (no closed enum), so ``_validate_shape`` never sees it;
     these are the first concretes to honor the value and must guard it
     themselves. ``None`` (absent / opt-out) maps to ``default``; otherwise the
-    value must be a non-bool ``int >= 1`` — mirroring ``_validate_result_limit``,
+    value must be a non-bool ``int >= 1``, mirroring ``_validate_result_limit``,
     bool is rejected explicitly (it is an ``int`` subclass, but a page size of
     ``True``/``False`` is a caller mistake), and strings / floats / ``< 1``
     raise ``InvalidCredentialShape`` so a typo surfaces a typed error rather

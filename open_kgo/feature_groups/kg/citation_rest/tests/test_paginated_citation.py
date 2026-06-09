@@ -125,14 +125,57 @@ class TestPaginatedCitationReader(CitationRestContractTestBase):
         with pytest.raises(InvalidCredentialShape):
             PaginatedCitationReader.load_data({"paginated_citation": slot}, fs)
 
-    @pytest.mark.parametrize("bad", ["garbage", True, "offset:-1"])
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "garbage",
+            True,
+            "offset:-1",
+            # int() leniencies outside the documented ^offset:[0-9]+$ grammar:
+            "offset:5_0",  # underscore separator; bare int() would parse 50
+            "offset:+5",  # explicit sign
+            "offset: 5",  # whitespace
+            "offset:٥",  # Arabic-Indic digit five; isdecimal-true but not ASCII
+        ],
+    )
     def test_malformed_cursor_token_rejected(self, bad: object) -> None:
-        """A non-``offset:<N>`` / bool / negative-offset cursor raises InvalidCredentialShape."""
+        """Anything outside the exact ``offset:`` + ASCII-digits grammar raises InvalidCredentialShape."""
         with pytest.raises(InvalidCredentialShape):
             parse_offset_cursor("paginated_citation", bad)
 
+    def test_malformed_cursor_token_rejected_through_reader(self) -> None:
+        """The typed error also surfaces through the reader's load path, not just the helper."""
+        slot = dict(self.valid_credentials()["paginated_citation"])
+        fs = FeatureSet()
+        fs.add(
+            Feature(
+                "paginated_citation__bad_cursor",
+                options=Options(context={"stable_id": "W1", "cursor_token": "garbage"}),
+            )
+        )
+        with pytest.raises(InvalidCredentialShape, match="malformed"):
+            PaginatedCitationReader.load_data({"paginated_citation": slot}, fs)
+
     def test_none_cursor_is_first_page(self) -> None:
         assert parse_offset_cursor("paginated_citation", None) == 0
+
+    def test_leading_zero_cursor_offset_is_plain_decimal(self) -> None:
+        """Leading zeros stay valid: ``offset:007`` is decimal 7, not octal or an error."""
+        assert parse_offset_cursor("paginated_citation", "offset:007") == 7
+
+    @pytest.mark.parametrize("bad", ["abc", -1, True, False, 2.5])
+    def test_invalid_hierarchy_depth_rejected(self, bad: object) -> None:
+        """A non-int / bool / negative hierarchy_depth raises InvalidCredentialShape, not a raw ValueError."""
+        slot = dict(self.valid_credentials()["paginated_citation"])
+        fs = FeatureSet()
+        fs.add(
+            Feature(
+                "paginated_citation__bad_depth",
+                options=Options(context={"stable_id": "W1", "hierarchy_depth": bad}),
+            )
+        )
+        with pytest.raises(InvalidCredentialShape, match="hierarchy_depth"):
+            PaginatedCitationReader.load_data({"paginated_citation": slot}, fs)
 
     def test_cursor_token_requires_cursor_family_style(self) -> None:
         """The PaginationMixin cross-layer guard fires through ``build_params``.

@@ -119,6 +119,32 @@ def test_load_oxigraph_store_returns_identical_object_across_calls(tmp_path: Pat
     assert isinstance(first, pyoxigraph.Store)
 
 
+def test_load_oxigraph_store_invalidates_on_mtime_change(tmp_path: Path) -> None:
+    """Modifying the underlying file evicts the cached store via mtime keying.
+
+    Mirrors ``test_load_json_fixture_invalidates_on_mtime_change`` for the
+    oxigraph backend: a rewrite plus mtime bump must yield a fresh store
+    that reflects the new file content.
+    """
+    path = tmp_path / "x.ttl"
+    path.write_text(
+        "@prefix ex: <http://example.org/> .\nex:a ex:b ex:c .\n",
+        encoding="utf-8",
+    )
+    first = load_oxigraph_store("test", path)
+    assert len(first) == 1
+    # Bump mtime explicitly so a same-second rewrite still rotates the key.
+    new_mtime_ns = path.stat().st_mtime_ns + 1_000_000_000
+    path.write_text(
+        "@prefix ex: <http://example.org/> .\nex:a ex:b ex:c .\nex:d ex:e ex:f .\n",
+        encoding="utf-8",
+    )
+    os.utime(path, ns=(new_mtime_ns, new_mtime_ns))
+    second = load_oxigraph_store("test", path)
+    assert first is not second
+    assert len(second) == 2
+
+
 def test_load_rdf_graph_rejects_remote_scheme() -> None:
     with pytest.raises(FixtureLoadError):
         load_rdf_graph("test", "https://example.invalid/x.ttl")

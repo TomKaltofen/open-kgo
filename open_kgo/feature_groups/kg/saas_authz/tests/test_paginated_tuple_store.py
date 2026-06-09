@@ -11,7 +11,11 @@ import pytest
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from mloda.user import Feature, Options
 
-from open_kgo.feature_groups.kg.errors import InvalidCredentialShape, UnknownTenantError
+from open_kgo.feature_groups.kg.errors import (
+    InvalidCredentialShape,
+    MissingRequiredKeysError,
+    UnknownTenantError,
+)
 from open_kgo.feature_groups.kg.saas_authz.paginated_tuple_store import (
     PaginatedTupleStoreReader,
 )
@@ -107,21 +111,41 @@ class TestPaginatedTupleStoreReader(SaasAuthzContractTestBase):
         with pytest.raises(UnknownTenantError):
             PaginatedTupleStoreReader._connect_from_slot(slot)
 
-    def test_cursor_token_with_non_cursor_style_rejected(self) -> None:
-        """The PaginationMixin cross-layer guard rejects cursor_token unless pagination_style is cursor-family.
+    def test_cursor_token_with_cursor_style_builds_params(self) -> None:
+        """Happy path: cursor_token + the pinned cursor pagination_style passes the cross-layer guard.
 
-        pagination_style is narrowed to ``cursor`` here, so the only way to
-        violate the guard is to also bypass the credential narrowing; this test
-        instead confirms the happy path (cursor_token + cursor style) builds.
+        pagination_style is narrowed to ``cursor`` via SUPPORTED_VALUES AND
+        required via REQUIRED_KEYS, so no slot that passes validation can pair
+        cursor_token with a non-cursor style (omission is rejected at
+        ``is_valid_credentials`` time; see
+        ``test_omitted_pagination_style_rejected_at_validate_time``). This
+        test pins the complementary positive: a validated slot's cursor_token
+        survives ``build_params`` intact.
         """
         slot = dict(self.valid_credentials()["paginated_tuple_store"])
         feat = Feature("paginated_tuple_store__cursor_ok", options=Options(context={"cursor_token": "offset:0"}))
-        from mloda.core.abstract_plugins.components.feature_set import FeatureSet
-
         fs = FeatureSet()
         fs.add(feat)
         params = PaginatedTupleStoreReader.build_params(fs, slot)
         assert params["cursor_token"] == "offset:0"
+
+    def test_omitted_pagination_style_rejected_at_validate_time(self) -> None:
+        """A full valid slot minus ``pagination_style`` fails ``is_valid_credentials``.
+
+        ``SUPPORTED_VALUES`` only validates keys present in the slot, and the
+        family default is ``none`` (a style this reader does not honor), so
+        the omission case must be closed by ``REQUIRED_KEYS``: without it, the
+        slot would validate, serve a cursor-paginated page 1, and then reject
+        its own continuation token at the cross-layer guard.
+        """
+        from mloda.provider import HashableDict
+
+        slot = dict(self.valid_credentials()["paginated_tuple_store"])
+        del slot["pagination_style"]
+        creds = HashableDict({"paginated_tuple_store": slot})
+        assert PaginatedTupleStoreReader.is_valid_credentials(creds) is False
+        with pytest.raises(MissingRequiredKeysError):
+            PaginatedTupleStoreReader._validate_shape(slot)
 
     def test_malformed_cursor_token_rejected(self) -> None:
         """A malformed cursor surfaces ``InvalidCredentialShape`` from ``load_data``.
@@ -176,6 +200,103 @@ class TestPaginatedTupleStoreReader(SaasAuthzContractTestBase):
         rows = PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
         assert rows == []
 
+    def test_nested_userset_passes_through_unexpanded(self, tmp_path: Path) -> None:
+        """Single-pass semantics: expansion output containing a userset is NOT re-expanded.
+
+        ``group:eng#member`` contains ``group:sub#member`` whose rel IS in
+        ``expand_paths``; Zanzibar's recursive Expand would resolve through to
+        ``user:zoe``, but this single structural pass emits the nested userset
+        reference as-is (the documented divergence in ``_expand_usersets``).
+        """
+        slot = self._slot_for(
+            tmp_path,
+            tuples=[
+                ["document", "doc", "viewer", "group:eng#member"],
+                ["group", "eng", "member", "group:sub#member"],
+                ["group", "sub", "member", "user:zoe"],
+            ],
+            expand_paths=["member"],
+        )
+        fs = FeatureSet()
+        fs.add(self.feature_under_test())
+        rows = PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
+        assert [r["user"] for r in rows] == ["group:sub#member"]
+
+    def test_self_referential_userset_terminates_and_emits_itself(self, tmp_path: Path) -> None:
+        """A userset cycle (group lists itself as a member) terminates and emits the reference itself.
+
+        Single-pass expansion has no recursion to cycle through; the
+        self-membership tuple simply becomes the expansion output.
+        """
+        slot = self._slot_for(
+            tmp_path,
+            tuples=[
+                ["document", "doc", "viewer", "group:eng#member"],
+                ["group", "eng", "member", "group:eng#member"],
+            ],
+            expand_paths=["member"],
+        )
+        fs = FeatureSet()
+        fs.add(self.feature_under_test())
+        rows = PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
+        assert [r["user"] for r in rows] == ["group:eng#member"]
+
+    def test_empty_tenant_store_yields_empty_list(self, tmp_path: Path) -> None:
+        """A tenant whose tuple list is empty yields ``[]`` (with expansion enabled)."""
+        slot = self._slot_for(tmp_path, tuples=[], expand_paths=["member"])
+        fs = FeatureSet()
+        fs.add(self.feature_under_test())
+        rows = PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
+        assert rows == []
+
+    def test_page_boundary_splitting_an_expansion_serves_consistent_pages(self, tmp_path: Path) -> None:
+        """A page boundary landing mid-expanded-group serves non-overlapping, complete pages.
+
+        One userset expands to three grants; ``page_size=2`` puts the boundary
+        inside the expanded group. Page 1 and page 2 (via ``offset:2``) must
+        not overlap and must union to the full sorted expansion.
+        """
+        tuples = [
+            ["document", "doc", "viewer", "group:eng#member"],
+            ["group", "eng", "member", "user:a"],
+            ["group", "eng", "member", "user:b"],
+            ["group", "eng", "member", "user:c"],
+        ]
+        slot = self._slot_for(tmp_path, tuples=tuples, expand_paths=["member"], page_size=2)
+
+        fs_page1 = FeatureSet()
+        fs_page1.add(self.feature_under_test())
+        page1 = PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs_page1)
+
+        fs_page2 = FeatureSet()
+        fs_page2.add(Feature("paginated_tuple_store__page2", options=Options(context={"cursor_token": "offset:2"})))
+        page2 = PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs_page2)
+
+        assert [r["user"] for r in page1] == ["user:a", "user:b"]
+        assert [r["user"] for r in page2] == ["user:c"]
+        users_page1 = {r["user"] for r in page1}
+        users_page2 = {r["user"] for r in page2}
+        assert not users_page1 & users_page2
+        assert users_page1 | users_page2 == {"user:a", "user:b", "user:c"}
+
+    def test_result_limit_caps_below_page_size(self, tmp_path: Path) -> None:
+        """result_limit smaller than page_size truncates the page to result_limit rows.
+
+        Pins the ``[: ctx.result_limit]`` slice after the page slice (the same
+        contract the citation sibling pins): the page is silently shortened,
+        not rejected.
+        """
+        tuples = [
+            ["document", "doc1", "viewer", "user:a"],
+            ["document", "doc2", "viewer", "user:b"],
+            ["document", "doc3", "viewer", "user:c"],
+        ]
+        slot = self._slot_for(tmp_path, tuples=tuples, page_size=100, result_limit=2)
+        fs = FeatureSet()
+        fs.add(self.feature_under_test())
+        rows = PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
+        assert [r["user"] for r in rows] == ["user:a", "user:b"]
+
     def test_bare_string_expand_paths_rejected(self) -> None:
         """A bare-string ``expand_paths`` raises through the load path.
 
@@ -190,7 +311,33 @@ class TestPaginatedTupleStoreReader(SaasAuthzContractTestBase):
         with pytest.raises(InvalidCredentialShape):
             PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
 
-    @pytest.mark.parametrize("bad", [0, -1, "abc"])
+    @pytest.mark.parametrize("bad", [False, 0, b"", {"member": 1}, {"member"}, 7])
+    def test_non_list_expand_paths_rejected(self, bad: object) -> None:
+        """Only ``None`` and an empty list/tuple opt out of expansion; everything else raises.
+
+        ``False`` / ``0`` / ``b""`` would silently opt out under a truthiness
+        check, and a dict would pass an element check via key iteration; the
+        guard accepts list/tuple of non-empty strings only.
+        """
+        slot = dict(self.valid_credentials()["paginated_tuple_store"])
+        slot["expand_paths"] = bad
+        fs = FeatureSet()
+        fs.add(self.feature_under_test())
+        with pytest.raises(InvalidCredentialShape):
+            PaginatedTupleStoreReader.load_data({"paginated_tuple_store": slot}, fs)
+
+    @pytest.mark.parametrize("empty", [[], ()])
+    def test_empty_list_or_tuple_expand_paths_opts_out(self, empty: object) -> None:
+        """An explicit empty list/tuple is the documented expansion opt-out (group refs pass through)."""
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        slot = dict(self.valid_credentials()["paginated_tuple_store"])
+        slot["expand_paths"] = empty
+        slot["page_size"] = 100
+        rows = run_query("paginated_tuple_store", slot, self.feature_under_test())
+        assert "group:eng#member" in {r["user"] for r in rows}
+
+    @pytest.mark.parametrize("bad", [0, -1, "abc", True])
     def test_invalid_page_size_rejected(self, bad: object) -> None:
         """A non-positive-int / non-numeric page_size raises InvalidCredentialShape at load time."""
         slot = dict(self.valid_credentials()["paginated_tuple_store"])

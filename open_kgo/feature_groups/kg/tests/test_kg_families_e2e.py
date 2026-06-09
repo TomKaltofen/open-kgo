@@ -546,8 +546,10 @@ def test_cross_family_asymmetry_catalog() -> None:
 
     This is the diagnostic half of "reveal gaps": rather than freezing today's counts with a brittle
     ``assert build == {"kuzu_cypher"}``, it prints the asymmetries so they are visible in ``pytest -s``
-    output and in any review. The only assertion is the one genuine invariant (no connector is
-    classified twice in a dimension); the value here is the printed catalog, not a gate.
+    output and in any review. The only assertion guards against duplicate ``connector_id`` entries in
+    ``CASES``: each case contributes exactly one tag per dimension, so a connector_id can only show up
+    twice in a dimension's buckets if it was registered twice. The value here is the printed catalog,
+    not a gate.
 
     Asymmetries surfaced (printed, not asserted):
       - ``code_build`` keys credentials on ``manifest_path`` while the other eight families use ``locator``.
@@ -589,7 +591,12 @@ def test_cross_family_asymmetry_catalog() -> None:
             lines.append(f"  {key:<14} ({len(bucket[key]):>2}): {', '.join(sorted(bucket[key]))}")
     print("\n".join(lines))  # captured by pytest; visible with -s or on failure
 
-    # The one genuine invariant: no connector is classified into two buckets of the same dimension.
+    # The one genuine invariant: no duplicate connector_id entries in CASES. Each case contributes
+    # exactly one tag per dimension, so a repeated connector_id is the only way a dimension's
+    # buckets can contain the same id twice.
     for dimension, bucket in (("input", by_input), ("locator", by_locator), ("scope", by_scope), ("setup", by_setup)):
         flat = [cid for ids in bucket.values() for cid in ids]
-        assert len(set(flat)) == len(flat), f"{dimension}: a connector appears in two buckets: {sorted(flat)}"
+        assert len(set(flat)) == len(flat), (
+            f"{dimension}: duplicate connector_id entries in CASES (a connector_id appears more than once): "
+            f"{sorted(cid for cid in set(flat) if flat.count(cid) > 1)}"
+        )

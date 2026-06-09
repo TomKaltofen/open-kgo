@@ -22,6 +22,12 @@ PROTOTYPE NOTE: ``retrieval_mode`` is strict-validated against
 ``lexical`` (string-match over node labels); ``GraphWalkMemoryReader``
 narrows it to ``graph`` (BFS from a seed node id given as ``query_text``).
 ``vector`` / ``hybrid`` remain unimplemented and are rejected at
-``is_valid_credentials`` time via ``SUPPORTED_VALUES`` on each concrete, so
-neither reader lies about what it honors.
+``is_valid_credentials`` time via ``SUPPORTED_VALUES`` on each concrete.
+``SUPPORTED_VALUES`` only validates keys present in the slot, and the family
+default is ``lexical``, so ``GraphWalkMemoryReader`` additionally lists
+``retrieval_mode`` in ``REQUIRED_KEYS``: omitting the key (which would
+silently default to the un-honored ``lexical``) is rejected at
+``is_valid_credentials`` time as well. Together the two layers ensure neither
+reader lies about what it honors (``NetworkxMemoryReader`` honors the family
+default, so omission is safe there and the key stays optional).
 """

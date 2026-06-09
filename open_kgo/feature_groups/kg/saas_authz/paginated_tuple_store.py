@@ -14,6 +14,15 @@ expansion is a single structural pass: a tuple whose user is a userset
 reference (``group:<id>#<rel>``) is replaced by the members of that group when
 ``<rel>`` is listed in ``expand_paths``.
 
+CURSOR HONESTY NOTE: ``pagination_style=cursor`` is documented family-wide
+(``PaginationMixin``) as an opaque server-returned cursor sent back on the
+next request. This reader never returns a cursor: ``load_data`` returns only
+rows, and callers fabricate positional ``offset:<N>`` tokens themselves
+(decoded by ``parse_offset_cursor``). The tokens are positional offsets over
+the re-sorted expanded tuple list, so if the fixture (or its expansion)
+changes between pages, a saved token silently shifts to different rows; there
+is no snapshot consistency behind the token.
+
 The tuples are loaded from a JSON fixture at ``locator`` (shape:
 ``{tenant: [[object_type, object_id, relation, user], ...]}``). An unknown
 tenant raises ``UnknownTenantError`` at connect time (the agent_memory
@@ -40,7 +49,13 @@ _Tuple = tuple[str, str, str, str]
 
 
 def _validate_tuples(connector_id: str, locator: str, tenant: str, raw: Any) -> list[_Tuple]:
-    """Raise ``FixtureLoadError`` unless ``raw`` is a list of 4-string tuples; return as ``list[tuple]``."""
+    """Raise ``FixtureLoadError`` unless ``raw`` is a list of 4-string tuples; return as ``list[tuple]``.
+
+    Duplicated verbatim from the sibling ``in_process_tuple_store`` module
+    (rather than imported from its private namespace) so the two backends
+    stay independent: the same self-contained pattern agent_memory follows
+    for its per-concrete ``_validate_user_data`` helpers.
+    """
     if not isinstance(raw, list):
         raise FixtureLoadError(
             connector_id, locator, f"tenant {tenant!r} entry must be a list, got {type(raw).__name__}."
@@ -63,31 +78,33 @@ def _validate_expand_paths(connector_id: str, raw: Any) -> tuple[str, ...]:
     ``expand_paths`` is ``strict_validation=False`` (no closed enum), so
     ``_validate_shape`` never inspects it; this reader is the first to honor it
     and must guard the shape itself (page_size has ``parse_page_size``; this is
-    its sibling guard). ``None`` / absent / empty maps to an empty tuple (the
-    expansion opt-out). A bare ``str``/``bytes`` is rejected even though it is
-    iterable: iterating ``"member"`` would silently yield ``("m","e",...)`` and
-    disable expansion with no error. Non-string elements are likewise rejected
-    with a typed ``InvalidCredentialShape`` rather than failing deep in the walk.
+    its sibling guard). The expansion opt-out is deliberately narrow: only
+    ``None`` (absent) and an empty ``list``/``tuple`` map to an empty tuple.
+    Everything else that is not a list/tuple of non-empty strings raises a
+    typed ``InvalidCredentialShape``: a bare ``str``/``bytes`` would iterate
+    character-wise and silently disable expansion, falsey scalars (``0``,
+    ``False``, ``b""``) would silently opt out, and a ``dict`` would otherwise
+    pass an element check via key iteration. All of those are caller mistakes
+    worth a loud error rather than a silent no-expansion run.
     """
-    if not raw:
+    if raw is None:
         return ()
     if isinstance(raw, (str, bytes)):
         raise InvalidCredentialShape(
-            f"{connector_id}: expand_paths must be a sequence of relation strings, not a bare "
+            f"{connector_id}: expand_paths must be a list of relation strings, not a bare "
             f"{type(raw).__name__} ({raw!r}); wrap a single path in a list (e.g. ['member'])."
         )
-    try:
-        items = list(raw)
-    except TypeError:
+    if not isinstance(raw, (list, tuple)):
         raise InvalidCredentialShape(
-            f"{connector_id}: expand_paths must be an iterable of relation strings, got {type(raw).__name__} ({raw!r})."
+            f"{connector_id}: expand_paths must be a list or tuple of relation strings, "
+            f"got {type(raw).__name__} ({raw!r})."
         )
-    for item in items:
-        if not isinstance(item, str):
+    for item in raw:
+        if not isinstance(item, str) or not item:
             raise InvalidCredentialShape(
-                f"{connector_id}: expand_paths entries must be strings, got {type(item).__name__} ({item!r})."
+                f"{connector_id}: expand_paths entries must be non-empty strings, got {type(item).__name__} ({item!r})."
             )
-    return tuple(items)
+    return tuple(raw)
 
 
 def _expand_usersets(rows: list[_Tuple], all_tuples: list[_Tuple], expand_paths: tuple[str, ...]) -> list[_Tuple]:
@@ -104,6 +121,19 @@ def _expand_usersets(rows: list[_Tuple], all_tuples: list[_Tuple], expand_paths:
     ``group:<id>#<rel>`` row is replaced by its (empty) membership, so it drops
     out of the result. A userset whose ``<rel>`` is NOT in ``expand_paths`` is
     left untouched and passes through as-is.
+
+    Single-pass semantics (a deliberate divergence from Zanzibar's recursive
+    Expand): the membership index is consulted exactly once per input row, so
+    expansion *output* is never re-expanded. Two consequences callers must
+    know about:
+
+    - A nested userset passes through unexpanded EVEN IF its ``<rel>`` is in
+      ``expand_paths``: when ``group:eng#member`` contains
+      ``group:sub#member`` as a member, expanding the eng row emits the
+      ``group:sub#member`` reference itself, not sub's members.
+    - A self-referential userset (``group:eng#member`` listing itself as a
+      member) terminates trivially by emitting itself; there is no recursion
+      to cycle through.
     """
     if not expand_paths:
         return rows
@@ -133,7 +163,13 @@ def _expand_usersets(rows: list[_Tuple], all_tuples: list[_Tuple], expand_paths:
 
 class PaginatedTupleStoreReader(SaasAuthzReader):
     CONNECTOR_ID: ClassVar[str] = "paginated_tuple_store"
-    REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("locator",), ("tenant",))
+    # pagination_style is REQUIRED (not just narrowed): the family default is
+    # "none", which this reader does not honor, and SUPPORTED_VALUES only
+    # validates keys present in the slot. An omitted pagination_style would
+    # otherwise pass is_valid_credentials, serve a cursor-paginated page 1,
+    # and then reject its own continuation token (cursor_token + the
+    # defaulted "none" fails PaginationMixin._validate_cross_layer).
+    REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("locator",), ("tenant",), ("pagination_style",))
 
     # pagination_style is narrowed to the cursor style this reader implements;
     # page_size, cursor_token, and expand_paths are RETAINED (the new surface).

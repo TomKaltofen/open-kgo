@@ -19,6 +19,7 @@ from open_kgo.feature_groups.kg.agent_memory.tests.kg_agent_memory_contract impo
 from open_kgo.feature_groups.kg.errors import (
     FixtureLoadError,
     InvalidCredentialShape,
+    MissingRequiredKeysError,
     UnknownMemoryScopeError,
 )
 
@@ -87,6 +88,22 @@ class TestGraphWalkMemoryReader(AgentMemoryContractTestBase):
         creds = HashableDict({"graph_walk_memory": slot})
         assert GraphWalkMemoryReader.is_valid_credentials(creds) is False
         with pytest.raises(InvalidCredentialShape):
+            GraphWalkMemoryReader._validate_shape(slot)
+
+    def test_omitted_retrieval_mode_rejected_at_validate_time(self) -> None:
+        """A full valid slot minus ``retrieval_mode`` fails ``is_valid_credentials``.
+
+        ``SUPPORTED_VALUES`` only validates keys present in the slot, and the
+        family default is ``lexical`` (a mode this reader does not honor), so
+        the omission case must be closed by ``REQUIRED_KEYS``: without it, the
+        slot would validate and silently run graph retrieval under a defaulted
+        ``lexical`` label.
+        """
+        slot = dict(self.valid_credentials()["graph_walk_memory"])
+        del slot["retrieval_mode"]
+        creds = HashableDict({"graph_walk_memory": slot})
+        assert GraphWalkMemoryReader.is_valid_credentials(creds) is False
+        with pytest.raises(MissingRequiredKeysError):
             GraphWalkMemoryReader._validate_shape(slot)
 
     def test_unknown_user_id_raises_typed_error(self) -> None:
@@ -169,3 +186,80 @@ class TestGraphWalkMemoryReader(AgentMemoryContractTestBase):
         slot["locator"] = str(fixture)
         with pytest.raises(FixtureLoadError):
             GraphWalkMemoryReader.connect(HashableDict({"graph_walk_memory": slot}))
+
+    def _connect_with_user_data(self, tmp_path: Path, user_data: dict[str, Any]) -> None:
+        """Write ``{"user_42": user_data}`` to a fixture and run ``connect`` against it."""
+        fixture = tmp_path / "shaped.json"
+        fixture.write_text(json.dumps({"user_42": user_data}), encoding="utf-8")
+        slot = dict(self.valid_credentials()["graph_walk_memory"])
+        slot["locator"] = str(fixture)
+        GraphWalkMemoryReader.connect(HashableDict({"graph_walk_memory": slot}))
+
+    def test_dangling_edge_target_rejected(self, tmp_path: Path) -> None:
+        """An edge whose target references no declared node raises ``FixtureLoadError``.
+
+        ``MultiDiGraph.add_edge`` auto-creates missing endpoints, so without
+        the guard a dangling target would materialize an attribute-less node
+        whose BFS row is missing ``label`` (a silent family row-shape
+        violation).
+        """
+        with pytest.raises(FixtureLoadError):
+            self._connect_with_user_data(
+                tmp_path,
+                {
+                    "nodes": [{"id": "m1", "label": "a"}],
+                    "edges": [{"src": "m1", "tgt": "ghost"}],
+                },
+            )
+
+    def test_node_missing_id_rejected(self, tmp_path: Path) -> None:
+        """A node entry without an ``id`` key raises ``FixtureLoadError`` (not a raw KeyError)."""
+        with pytest.raises(FixtureLoadError):
+            self._connect_with_user_data(
+                tmp_path,
+                {
+                    "nodes": [{"label": "no id here"}],
+                    "edges": [],
+                },
+            )
+
+    def test_edge_missing_src_rejected(self, tmp_path: Path) -> None:
+        """An edge entry without a ``src`` key raises ``FixtureLoadError`` (not a raw KeyError)."""
+        with pytest.raises(FixtureLoadError):
+            self._connect_with_user_data(
+                tmp_path,
+                {
+                    "nodes": [{"id": "m1", "label": "a"}],
+                    "edges": [{"tgt": "m1"}],
+                },
+            )
+
+    def test_nonexistent_seed_returns_empty_list(self) -> None:
+        """A seed id absent from the user's graph returns ``[]`` (pinned, not an error)."""
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        feat = Feature("graph_walk_memory__missing_seed", options=Options(context={"query_text": "not_a_node"}))
+        rows = run_query("graph_walk_memory", self.valid_credentials()["graph_walk_memory"], feat)
+        assert rows == []
+
+    @pytest.mark.parametrize("context", [{}, {"query_text": ""}, {"query_text": "   "}])
+    def test_build_query_missing_or_blank_query_text_raises(self, context: dict[str, Any]) -> None:
+        """``build_query`` raises ``ValueError`` when ``query_text`` is absent, empty, or whitespace."""
+        feat = Feature("graph_walk_memory__bad_seed", options=Options(context=context))
+        fs = FeatureSet()
+        fs.add(feat)
+        with pytest.raises(ValueError):
+            GraphWalkMemoryReader.build_query(fs)
+
+    def test_build_query_strips_padded_seed(self) -> None:
+        """``build_query`` returns the stripped seed, so a padded ``"  m1 "`` reaches the walk.
+
+        Pins the strip-before-return behavior: an unstripped return value
+        would validate but match no node, silently yielding ``[]``.
+        """
+        feat = Feature("graph_walk_memory__padded_seed", options=Options(context={"query_text": "  m1 "}))
+        fs = FeatureSet()
+        fs.add(feat)
+        assert GraphWalkMemoryReader.build_query(fs) == "m1"
+        rows = GraphWalkMemoryReader.load_data(self.valid_credentials(), fs)
+        assert {r["id"] for r in rows} == {"m1", "m2", "m3"}

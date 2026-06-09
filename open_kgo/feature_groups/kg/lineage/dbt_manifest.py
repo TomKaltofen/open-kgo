@@ -67,10 +67,18 @@ class DbtManifestReader(LineageReader):
             # caller holds row["node"] (see ``_connect_from_slot``).
             rows.append({"urn": asset_urn, "node": copy_cached_row(nodes_index[asset_urn])})
 
+        # One seen set shared across both directional walks: under BOTH, a
+        # node reachable in both directions (cycle through the start) must be
+        # emitted once and bill result_limit once.
+        seen: set[str] = {asset_urn}
         if direction in ("UPSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk_with_node(parent_map, nodes_index, asset_urn, upstream_depth, result_limit - len(rows)))
+            rows.extend(
+                _walk_with_node(parent_map, nodes_index, asset_urn, upstream_depth, result_limit - len(rows), seen)
+            )
         if direction in ("DOWNSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk_with_node(child_map, nodes_index, asset_urn, downstream_depth, result_limit - len(rows)))
+            rows.extend(
+                _walk_with_node(child_map, nodes_index, asset_urn, downstream_depth, result_limit - len(rows), seen)
+            )
 
         return rows
 
@@ -81,17 +89,27 @@ def _walk_with_node(
     start: str,
     depth: int,
     remaining: int,
+    seen: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """BFS walk along edge_map; emit nodes_index[urn] entries (or {urn:...} stubs).
 
     Aborts as soon as ``remaining`` rows have been emitted so result_limit
     bounds the work walked, not just the output sliced. Without this guard a
-    wide manifest pays full BFS cost for a tiny limit.
+    wide manifest pays full BFS cost for a tiny limit. When ``seen`` is
+    given it is caller-owned and mutated in place: ``load_data`` passes ONE
+    set (seeded with the start node) to both directional walks so a node that
+    is both upstream and downstream of the start (a cycle through the start)
+    is emitted once under ``lineage_direction=BOTH`` and bills
+    ``result_limit`` once. A node already emitted by an earlier walk is also
+    not re-expanded. ``seen=None`` builds a fresh per-walk set seeded with
+    ``start`` (single-direction semantics, used by direct unit-test callers).
     """
     if depth <= 0 or remaining <= 0:
         return []
+    if seen is None:
+        seen = set()
+    seen.add(start)
     out: list[dict[str, Any]] = []
-    seen: set[str] = {start}
     frontier: list[str] = [start]
     for _ in range(depth):
         next_frontier: list[str] = []

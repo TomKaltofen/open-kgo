@@ -11,13 +11,20 @@ other works via ``references``.
 Walk semantics: BFS the citation graph from ``stable_id`` out to
 ``hierarchy_depth`` hops, optionally filter the collected works by
 ``entity_type``, sort by ``stableId`` for a stable page order, then return the
-``page_size`` slice starting at the ``cursor_token`` offset (an opaque
+``page_size`` slice starting at the ``cursor_token`` offset (an
 ``"offset:<N>"`` token), capped at ``result_limit``. Parsed with stdlib JSON
 (no new dependency).
+
+HONESTY NOTE: the reader never emits a next-cursor; ``cursor_token`` values
+are positional ``"offset:<N>"`` offsets computed by the caller, not opaque
+server-issued cursors. The offset indexes into the sorted, filtered walk of
+the *current* call, so changing ``entity_type`` (or the fixture contents)
+between continuation calls shifts which rows a given offset returns.
 """
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
@@ -26,6 +33,7 @@ from open_kgo.feature_groups.kg.citation_rest.base import (
     CitationRestFeatureGroup,
     CitationRestReader,
 )
+from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
 from open_kgo.feature_groups.kg.mixins import parse_offset_cursor, parse_page_size
 
@@ -52,10 +60,15 @@ class PaginatedCitationReader(CitationRestReader):
         catalog = cls._connect_from_slot(ctx.slot)
         params = cls.build_params(features, ctx.slot)
 
-        stable_id = params.get("stable_id")
-        if stable_id is None:
-            raise ValueError(f"{cls.CONNECTOR_ID}: stable_id is required for citation lookup.")
-        depth = int(params.get("hierarchy_depth", 1))
+        # stable_id presence is enforced by REQUIRED_PARAMS inside build_params
+        # (MissingRequiredParamsError), so no None re-check is needed here.
+        stable_id = params["stable_id"]
+        depth = params.get("hierarchy_depth", 1)
+        if isinstance(depth, bool) or not isinstance(depth, int) or depth < 0:
+            raise InvalidCredentialShape(
+                f"{cls.CONNECTOR_ID}: hierarchy_depth must be a non-negative int (bool not accepted), "
+                f"got {type(depth).__name__} {depth!r}."
+            )
         entity_type = params.get("entity_type")
         offset = parse_offset_cursor(cls.CONNECTOR_ID, params.get("cursor_token"))
         page_size = parse_page_size(cls.CONNECTOR_ID, ctx.slot.get("page_size"), 100)
@@ -63,9 +76,9 @@ class PaginatedCitationReader(CitationRestReader):
         # BFS the citation graph from stable_id out to ``depth`` hops.
         collected: list[str] = []
         visited: set[str] = set()
-        queue: list[tuple[str, int]] = [(stable_id, 0)]
+        queue: deque[tuple[str, int]] = deque([(stable_id, 0)])
         while queue:
-            node_id, hop = queue.pop(0)
+            node_id, hop = queue.popleft()
             if node_id in visited or node_id not in catalog:
                 continue
             visited.add(node_id)

@@ -30,8 +30,16 @@ kg/
 ├── base.py        KgConnectorReaderBase / QueryReader / ParamReader / KgConnectorFeatureGroupBase
 ├── mixins.py      EntityFilterPropertyMixin / EntityFilterParamMixin / PaginationMixin / TraversalMixin / InferenceMixin
 ├── errors.py      InvalidCredentialShape / MissingRequiredKeysError / PropertyMappingCollision / MissingEnvVarError
+├── fixtures.py    Shared resource-cache loaders (load_json_fixture / load_rdf_graph / load_oxigraph_store / load_kuzu_database)
+├── conftest.py    Autouse fixture clearing the resource caches between tests
+├── ontology/      Ontology registry for typed traversal (registry.py + tests/)
 ├── tests/
-│   └── kg_contract.py   Universal abstract test base (5 adapter methods + 9 contract tests)
+│   ├── kg_contract.py             Universal abstract test base (5 adapter methods + 26 contract tests)
+│   ├── _helpers.py                Shared run_query / make_valid_credentials helpers
+│   ├── _discovery.py              Reader discovery (import_all_kg_readers / walk_subclasses / ...)
+│   ├── test_kg_families_e2e.py    All-family usage smoke + cross-family gap diagnostics
+│   ├── test_resource_cache.py     Resource-lifecycle / shared-cache contract tests
+│   └── test_*.py                  Further cross-cutting suites (validation, pagination, discovery, ...)
 └── <family>/
     ├── base.py             <Family>Reader + <Family>FeatureGroup (per-family PROPERTY_MAPPING)
     ├── <concrete>.py       Concrete plugin (CONNECTOR_ID + connect/build_query/load_data)
@@ -95,8 +103,8 @@ framework derives the rejection contract.
 A concrete plugin's test class subclasses the per-family `*ContractTestBase`
 (which itself subclasses `KgConnectorContractBase`) and implements 5 adapter
 methods (`connector_reader_class`, `valid_credentials`, `invalid_credentials`,
-`feature_under_test`, `expected_row_shape`). It inherits ~10 universal contract
-assertions + per-family assertions for free. ~20-30 lines per concrete plugin.
+`feature_under_test`, `expected_row_shape`). It inherits 26 universal contract
+tests + per-family assertions for free. ~20-30 lines per concrete plugin.
 
 ## No-Docker testing policy
 

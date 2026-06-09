@@ -18,6 +18,8 @@ The vertex identity exposed in rows is the first present of ``name`` / ``label``
 / ``id``, falling back to the integer vertex index. The committed GML fixtures
 carry a ``label`` per node, so rows key on the label (e.g. ``"alice"``), which
 mirrors what ``nx.read_gml`` produces (it relabels nodes to their ``label``).
+A ``start_node`` absent from the graph raises the family-typed
+``UnknownStartNodeError`` (identical behavior to the NetworkX sibling).
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 from open_kgo.feature_groups.kg.embedded.base import (
     EmbeddedGraphFeatureGroup,
     EmbeddedGraphReader,
+    UnknownStartNodeError,
 )
 from open_kgo.feature_groups.kg.fixtures import _rejected_scheme
 
@@ -47,10 +50,17 @@ def _vertex_key(vertex: igraph.Vertex) -> Any:
 
     igraph vertices are integer-indexed; GML/GraphML readers surface the
     source identifiers as the ``name`` / ``label`` / ``id`` attributes. The
-    NetworkX reader keys rows on the node id (its GML loader relabels nodes to
-    their ``label``), so preferring ``name`` then ``label`` keeps the two
-    embedded backends' row shapes aligned on the same committed fixtures. The
-    integer-index fallback only guards label-less GML/GraphML vertices.
+    NetworkX reader keys rows on the node id (its GML loader relabels nodes
+    to their ``label``), so this preference order keeps the two embedded
+    backends' row shapes aligned for LABEL-ONLY GML fixtures like the
+    committed ones. The parity claim is scoped to that shape: on a GML file
+    carrying BOTH ``name`` and ``label``, the backends diverge (igraph keys
+    on ``name``, e.g. ``"Alice"``, while ``nx.read_gml`` keys on ``label``,
+    e.g. ``"alice"``); and igraph surfaces the GML ``id`` fallback as a
+    float (e.g. ``0.0``), not an int. The integer-index fallback only guards
+    attribute-less vertices. Do not reorder the preference: the committed
+    fixtures only carry ``label``, and changing the key order risks breaking
+    row parity.
     """
     attrs = vertex.attributes()
     for attr in ("name", "label", "id"):
@@ -118,7 +128,10 @@ class IGraphEmbeddedReader(EmbeddedGraphReader):
                 raise ValueError(f"{cls.CONNECTOR_ID}: operation=neighbors requires 'start_node'.")
             start_index = next((v.index for v in graph.vs if _vertex_key(v) == start), None)
             if start_index is None:
-                return []
+                # Family-typed error (instead of the prior silent ``[]``) so
+                # both embedded backends fail identically on an unknown
+                # start_node.
+                raise UnknownStartNodeError(cls.CONNECTOR_ID, start)
             # ``mode="out"`` matches NetworkxEmbeddedReader, which uses
             # ``DiGraph.neighbors`` (successors). On an undirected graph igraph
             # ignores ``mode`` and returns all neighbors, so the two embedded

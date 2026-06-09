@@ -14,6 +14,14 @@ is reached (short-circuit, not slice-at-end). SELECT results map to
 JSON-binding-shaped dicts; CONSTRUCT/DESCRIBE map to ``s``/``p``/``o`` triple
 rows; ASK maps to a single ``{"boolean": ...}`` row.
 
+Queries run with ``use_default_graph_as_union=True``: the loader accepts
+quad-bearing serialisations (TriG / N-Quads / JSON-LD) whose triples land in
+NAMED graphs, and oxigraph's default query semantics scope a pattern without a
+``GRAPH`` clause to the default graph only, which would make every such triple
+invisible to every SELECT. The union semantics treat the default graph as the
+union of all graphs, matching rdflib's default-union behaviour so the two
+backends agree on what a plain query sees.
+
 Backend divergence (deliberate, additive): unlike the rdflib sibling, which
 yields no rows for non-SELECT shapes (its ``asdict``-skip path), this reader
 emits boolean/triple rows for ASK/CONSTRUCT/DESCRIBE. oxigraph is the more
@@ -85,7 +93,11 @@ class OxigraphSparqlReader(RdfSparqlReader):
         store = cls._connect_from_slot(ctx.slot)
 
         query_text = cls.build_query(features)
-        result = store.query(query_text)
+        # use_default_graph_as_union: triples loaded from quad-bearing formats
+        # (TriG / N-Quads / JSON-LD) live in named graphs; without the union
+        # they are invisible to any query lacking a GRAPH clause (see module
+        # docstring).
+        result = store.query(query_text, use_default_graph_as_union=True)
         rows: list[dict[str, Any]] = []
 
         if isinstance(result, pyoxigraph.QuerySolutions):
@@ -96,7 +108,11 @@ class OxigraphSparqlReader(RdfSparqlReader):
                 # rdflib sibling yields rdflib term objects (URIRef / Literal)
                 # via ``row.asdict()``. oxigraph's ``.value`` drops datatype and
                 # language tags, so a consumer that needs typed terms must use
-                # the rdflib reader. Unbound bindings (e.g. an OPTIONAL variable
+                # the rdflib reader. The same ``.value`` flattening applies to
+                # the CONSTRUCT/DESCRIBE triple branch below: blank nodes emit
+                # their bare id (no ``_:`` prefix), and IRIs vs literals are
+                # indistinguishable plain strings in the emitted s/p/o rows.
+                # Unbound bindings (e.g. an OPTIONAL variable
                 # with no match) are OMITTED from the row, matching the rdflib
                 # sibling's ``asdict()`` which only carries bound variables, so
                 # the two backends agree on the SELECT row schema.

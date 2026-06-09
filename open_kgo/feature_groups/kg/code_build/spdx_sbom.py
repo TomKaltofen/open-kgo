@@ -29,6 +29,7 @@ from open_kgo.feature_groups.kg.code_build.base import (
     CodeBuildFeatureGroup,
     CodeBuildReader,
 )
+from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
 from open_kgo.feature_groups.kg.mixins import TraversalMixin
 
@@ -65,12 +66,35 @@ def _build_dependency_maps(
     return dict(upstream), dict(downstream)
 
 
+def _parse_depth(connector_id: str, key: str, value: Any, default: int) -> int:
+    """Validate and return a non-negative-int depth, falling back to ``default`` when unset.
+
+    Inline counterpart of ``parse_page_size`` in ``mixins.py``: the depth keys
+    are ``strict_validation=False`` by family design (no closed enum), so
+    ``_validate_params`` never type-checks them; this concrete is the first to
+    honor them and must guard the values itself. ``None`` (absent) maps to
+    ``default``; otherwise the value must be a non-bool ``int >= 0`` (``0`` is
+    meaningful: it disables that direction). Floats, bools, and strings raise
+    ``InvalidCredentialShape`` so a typo surfaces a typed error rather than a
+    raw ``ValueError`` mid-load or a silently truncated walk.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise InvalidCredentialShape(
+            f"{connector_id}: {key} must be a non-negative int (bool not accepted), "
+            f"got {type(value).__name__} {value!r}."
+        )
+    return value
+
+
 def _walk_packages(
     edge_map: dict[str, list[str]],
     packages_index: dict[str, Any],
     start: str,
     depth: int,
     remaining: int,
+    seen: set[str],
 ) -> list[dict[str, Any]]:
     """BFS along ``edge_map`` from ``start`` up to ``depth`` hops; emit package rows.
 
@@ -78,11 +102,19 @@ def _walk_packages(
     the work walked, not just the output sliced (mirrors the lineage readers).
     Packages are routed through ``copy_cached_row`` so the shared cached SBOM
     stays read-only when a row escapes to a caller.
+
+    ``seen`` is supplied (and mutated) by the caller so ``lineage_direction``
+    = ``BOTH`` shares ONE visited set across its upstream and downstream
+    walks: a package reachable in both directions (e.g. on a dependency
+    cycle) is emitted once, never double-billed against ``result_limit``
+    (the second walk also does not re-traverse through already-seen nodes).
+    A ``start`` absent from ``packages_index`` is itself a dangling node and
+    is not traversed, keeping the dangling-node rule below uniform for every
+    node including the start.
     """
-    if depth <= 0 or remaining <= 0:
+    if depth <= 0 or remaining <= 0 or start not in packages_index:
         return []
     out: list[dict[str, Any]] = []
-    seen: set[str] = {start}
     frontier: list[str] = [start]
     for _ in range(depth):
         next_frontier: list[str] = []
@@ -153,10 +185,12 @@ class SpdxSbomReader(CodeBuildReader):
 
         start = params.get("start_spdx_id")
         if not start:
-            raise ValueError(f"{cls.CONNECTOR_ID}: 'start_spdx_id' is required.")
+            # A missing/None start is already rejected upstream by REQUIRED_PARAMS
+            # (MissingRequiredParamsError); only an explicit "" reaches this guard.
+            raise InvalidCredentialShape(f"{cls.CONNECTOR_ID}: 'start_spdx_id' must be a non-empty SPDXID.")
         direction = params.get("lineage_direction", "BOTH")
-        upstream_depth = int(params.get("upstream_depth", 1))
-        downstream_depth = int(params.get("downstream_depth", 0))
+        upstream_depth = _parse_depth(cls.CONNECTOR_ID, "upstream_depth", params.get("upstream_depth"), 1)
+        downstream_depth = _parse_depth(cls.CONNECTOR_ID, "downstream_depth", params.get("downstream_depth"), 0)
         result_limit = ctx.result_limit
 
         packages_index = {
@@ -164,15 +198,23 @@ class SpdxSbomReader(CodeBuildReader):
         }
         upstream_map, downstream_map = _build_dependency_maps(sbom.get("relationships", []))
 
+        # result_limit is validated >= 1 upstream, so the start row never needs
+        # its own limit check. A start absent from packages_index is a dangling
+        # node: not emitted here, not traversed in _walk_packages.
         rows: list[dict[str, Any]] = []
-        if start in packages_index and result_limit > 0:
+        if start in packages_index:
             rows.append(copy_cached_row(packages_index[start]))
 
+        # One seen set shared by both walks: under BOTH, a package on a cycle
+        # is reachable in either direction but must be emitted at most once.
+        seen: set[str] = {start}
         if direction in ("UPSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk_packages(upstream_map, packages_index, start, upstream_depth, result_limit - len(rows)))
+            rows.extend(
+                _walk_packages(upstream_map, packages_index, start, upstream_depth, result_limit - len(rows), seen)
+            )
         if direction in ("DOWNSTREAM", "BOTH") and len(rows) < result_limit:
             rows.extend(
-                _walk_packages(downstream_map, packages_index, start, downstream_depth, result_limit - len(rows))
+                _walk_packages(downstream_map, packages_index, start, downstream_depth, result_limit - len(rows), seen)
             )
 
         return rows

@@ -4,7 +4,8 @@ Loads triples from a Turtle/N-Triples/RDF-XML file at ``locator`` (or accepts
 ``locator=None`` for an empty graph) and runs SPARQL queries against it.
 
 The query text comes from the Feature's options context under the key
-``query_text``. ``result_limit`` is enforced after the query runs (slice).
+``query_text``. ``result_limit`` is enforced by breaking out of result
+iteration as soon as the cap is reached (short-circuit, not slice-at-end).
 ``reasoning_profile`` is validated as an enum but only ``"none"`` is
 implemented in this prototype.
 """

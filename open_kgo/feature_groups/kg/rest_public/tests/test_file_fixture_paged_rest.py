@@ -101,6 +101,43 @@ class TestFileFixturePagedRestReader(RestPublicContractTestBase):
         rows = run_query("file_fixture_paged_rest", slot, self.feature_under_test())
         assert [r["id"] for r in rows] == ["A1", "A2", "B1"]
 
+    def test_page_size_above_page_rows_stops_after_first_page(self, tmp_path: Path) -> None:
+        """page_size larger than a page's row count makes it look final; later pages are skipped.
+
+        Pins the documented "termination threshold, not a cap" semantics:
+        page_1 has 2 rows < page_size=3, so the walk treats page_1 as the
+        last page and silently ignores page_2 even though the file exists
+        (the misconfigured-page_size corpus-truncation behavior).
+        """
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        (tmp_path / "page_1.json").write_text(json.dumps({"results": [{"id": "A1"}, {"id": "A2"}]}), encoding="utf-8")
+        (tmp_path / "page_2.json").write_text(json.dumps({"results": [{"id": "B1"}, {"id": "B2"}]}), encoding="utf-8")
+
+        slot = dict(self.valid_credentials()["file_fixture_paged_rest"])
+        slot["locator"] = str(tmp_path)
+        slot["page_size"] = 3
+        rows = run_query("file_fixture_paged_rest", slot, self.feature_under_test())
+        assert [r["id"] for r in rows] == ["A1", "A2"]
+
+    def test_exact_multiple_corpus_terminates_via_file_exhaustion(self, tmp_path: Path) -> None:
+        """A last page with exactly page_size rows and no successor file terminates cleanly.
+
+        Every page is full (the short-page break never fires), so the walk
+        ends only because the page_<N>.json files run out, returning the
+        whole corpus on the exact-multiple boundary.
+        """
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        (tmp_path / "page_1.json").write_text(json.dumps({"results": [{"id": "A1"}, {"id": "A2"}]}), encoding="utf-8")
+        (tmp_path / "page_2.json").write_text(json.dumps({"results": [{"id": "B1"}, {"id": "B2"}]}), encoding="utf-8")
+
+        slot = dict(self.valid_credentials()["file_fixture_paged_rest"])
+        slot["locator"] = str(tmp_path)
+        slot["page_size"] = 2
+        rows = run_query("file_fixture_paged_rest", slot, self.feature_under_test())
+        assert [r["id"] for r in rows] == ["A1", "A2", "B1", "B2"]
+
     @pytest.mark.parametrize("style", ["cursor", "offset", "odata-nextLink", "cursorMark", "start_rows", "none"])
     def test_unsupported_pagination_styles_rejected_at_validate_time(self, style: str) -> None:
         slot = dict(self.valid_credentials()["file_fixture_paged_rest"])

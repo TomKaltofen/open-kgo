@@ -23,6 +23,21 @@ from open_kgo.feature_groups.kg.embedded.tests.kg_embedded_contract import (
 _FIXTURE_GML = Path(__file__).parent / "fixtures" / "triangle.gml"
 _FIXTURE_DIRECTED_GML = Path(__file__).parent / "fixtures" / "directed_chain.gml"
 
+# Directed chain alice -> bob -> carol, the GraphML twin of directed_chain.gml.
+# igraph surfaces the GraphML node id as the ``id`` vertex attribute, so
+# ``_vertex_key`` keys rows on it (matching ``nx.read_graphml``'s node ids).
+_GRAPHML_CHAIN = """<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G" edgedefault="directed">
+    <node id="alice"/>
+    <node id="bob"/>
+    <node id="carol"/>
+    <edge source="alice" target="bob"/>
+    <edge source="bob" target="carol"/>
+  </graph>
+</graphml>
+"""
+
 
 class TestIGraphEmbeddedReader(EmbeddedContractTestBase):
     @classmethod
@@ -126,3 +141,24 @@ class TestIGraphEmbeddedReader(EmbeddedContractTestBase):
         feat = Feature("igraph_embedded__edges", options=Options(context={"operation": "edges"}))
         rows = run_query("igraph_embedded", slot, feat)
         assert sorted((r["src"], r["dst"]) for r in rows) == [("alice", "bob"), ("bob", "carol")]
+
+    def test_graphml_format_loads_and_returns_rows(self, tmp_path: Path) -> None:
+        """``graph_file_format=graphml`` is advertised in SUPPORTED_VALUES; prove the loader path works.
+
+        Loads a tmp_path-written GraphML twin of ``directed_chain.gml`` and
+        asserts both node identities and directed edges, so the advertised
+        format is exercised end-to-end rather than only declared.
+        """
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        graphml_path = tmp_path / "chain.graphml"
+        graphml_path.write_text(_GRAPHML_CHAIN, encoding="utf-8")
+        slot = {"locator": str(graphml_path), "graph_file_format": "graphml"}
+
+        nodes_feat = Feature("igraph_embedded__graphml_nodes", options=Options(context={"operation": "nodes"}))
+        node_rows = run_query("igraph_embedded", slot, nodes_feat)
+        assert sorted(r["node"] for r in node_rows) == ["alice", "bob", "carol"]
+
+        edges_feat = Feature("igraph_embedded__graphml_edges", options=Options(context={"operation": "edges"}))
+        edge_rows = run_query("igraph_embedded", slot, edges_feat)
+        assert sorted((r["src"], r["dst"]) for r in edge_rows) == [("alice", "bob"), ("bob", "carol")]

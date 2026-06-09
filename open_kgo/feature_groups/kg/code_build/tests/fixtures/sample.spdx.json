@@ -11,7 +11,10 @@
     {"SPDXID": "SPDXRef-Package-lib-a", "name": "lib-a", "versionInfo": "2.0.0"},
     {"SPDXID": "SPDXRef-Package-lib-b", "name": "lib-b", "versionInfo": "2.1.0"},
     {"SPDXID": "SPDXRef-Package-chain-app", "name": "chain-app", "versionInfo": "1.0.0"},
-    {"SPDXID": "SPDXRef-Package-chain-real", "name": "chain-real", "versionInfo": "1.0.0"}
+    {"SPDXID": "SPDXRef-Package-chain-real", "name": "chain-real", "versionInfo": "1.0.0"},
+    {"SPDXID": "SPDXRef-Package-cycle-a", "name": "cycle-a", "versionInfo": "1.0.0"},
+    {"SPDXID": "SPDXRef-Package-cycle-b", "name": "cycle-b", "versionInfo": "1.0.0"},
+    {"SPDXID": "SPDXRef-Package-self-loop", "name": "self-loop", "versionInfo": "1.0.0"}
   ],
   "relationships": [
     {"spdxElementId": "SPDXRef-DOCUMENT", "relatedSpdxElement": "SPDXRef-Package-app", "relationshipType": "DESCRIBES"},
@@ -21,6 +24,9 @@
     {"spdxElementId": "SPDXRef-Package-lib-b", "relatedSpdxElement": "SPDXRef-Package-lib-a", "relationshipType": "DEPENDENCY_OF"},
     {"spdxElementId": "SPDXRef-Package-lib-a", "relatedSpdxElement": "SPDXRef-Package-does-not-exist", "relationshipType": "DEPENDS_ON"},
     {"spdxElementId": "SPDXRef-Package-chain-app", "relatedSpdxElement": "SPDXRef-Package-chain-missing", "relationshipType": "DEPENDS_ON"},
-    {"spdxElementId": "SPDXRef-Package-chain-missing", "relatedSpdxElement": "SPDXRef-Package-chain-real", "relationshipType": "DEPENDS_ON"}
+    {"spdxElementId": "SPDXRef-Package-chain-missing", "relatedSpdxElement": "SPDXRef-Package-chain-real", "relationshipType": "DEPENDS_ON"},
+    {"spdxElementId": "SPDXRef-Package-cycle-a", "relatedSpdxElement": "SPDXRef-Package-cycle-b", "relationshipType": "DEPENDS_ON"},
+    {"spdxElementId": "SPDXRef-Package-cycle-b", "relatedSpdxElement": "SPDXRef-Package-cycle-a", "relationshipType": "DEPENDS_ON"},
+    {"spdxElementId": "SPDXRef-Package-self-loop", "relatedSpdxElement": "SPDXRef-Package-self-loop", "relationshipType": "DEPENDS_ON"}
   ]
 }
