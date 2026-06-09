@@ -558,7 +558,9 @@ def test_cross_family_asymmetry_catalog() -> None:
         open follow-up.
       - ``saas_authz.in_process_tuple_store`` takes no fixture credential at all: its fixture is baked into
         the reader (``_FIXTURE_PATH``), so it is the one connector you cannot repoint without code.
-        (Candidate for follow-up.)
+        INTENTIONAL and documented (resolved per issue #19): it deliberately trades a configurable
+        ``locator`` for a closed, matcher-safe ``tenant`` enum, and the sibling ``paginated_tuple_store``
+        is this family's configurable concrete. See ``kg/saas_authz/in_process_tuple_store.py``.
       - ``network_pg.kuzu_cypher`` is the only connector that builds its backend at test time rather than
         reading a committed fixture. (Candidate for follow-up.)
     """

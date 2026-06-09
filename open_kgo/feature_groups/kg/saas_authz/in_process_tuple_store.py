@@ -10,7 +10,12 @@ PROTOTYPE NOTE: this fake exercises the property *shape*. It does NOT provide
 real consistency-token semantics, model-id versioning, or namespaced check
 evaluation. For real semantics, use the OpenFGA / SpiceDB Python clients.
 
-Pinned fixture:
+Pinned fixture (intentional, issue #19):
+
+The pinning described below is a recorded design decision, not an open follow-up.
+The configurable-source concrete in this family is the sibling
+``paginated_tuple_store`` (it keeps the ``locator`` slot); this fake deliberately
+trades configurability for a closed, matcher-safe ``tenant`` enum. Rationale:
 
 The connector is pinned to a single canonical fixture (``_FIXTURE_PATH``); the
 family-level ``locator`` slot is dropped from ``PROPERTY_MAPPING`` and
