@@ -16,7 +16,7 @@ from open_kgo.feature_groups.kg.citation_rest.paginated_citation import (
 from open_kgo.feature_groups.kg.citation_rest.tests.kg_citation_rest_contract import (
     CitationRestContractTestBase,
 )
-from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
+from open_kgo.feature_groups.kg.errors import InvalidCredentialShape, MissingRequiredKeysError
 from open_kgo.feature_groups.kg.mixins import parse_offset_cursor
 
 
@@ -177,15 +177,37 @@ class TestPaginatedCitationReader(CitationRestContractTestBase):
         with pytest.raises(InvalidCredentialShape, match="hierarchy_depth"):
             PaginatedCitationReader.load_data({"paginated_citation": slot}, fs)
 
+    def test_omitted_pagination_style_rejected_at_validate_time(self) -> None:
+        """A full valid slot minus ``pagination_style`` fails ``is_valid_credentials``.
+
+        ``SUPPORTED_VALUES`` only validates keys present in the slot, and the
+        family default is ``none`` (a style this reader does not honor), so
+        the omission case must be closed by ``REQUIRED_KEYS``: without it, the
+        slot would validate, serve a cursor-paginated page 1, and then reject
+        its own continuation token at the cross-layer guard.
+        """
+        from mloda.provider import HashableDict
+
+        slot = dict(self.valid_credentials()["paginated_citation"])
+        del slot["pagination_style"]
+        creds = HashableDict({"paginated_citation": slot})
+        assert PaginatedCitationReader.is_valid_credentials(creds) is False
+        with pytest.raises(MissingRequiredKeysError):
+            PaginatedCitationReader._validate_shape(slot)
+
     def test_cursor_token_requires_cursor_family_style(self) -> None:
         """The PaginationMixin cross-layer guard fires through ``build_params``.
 
         Exercises the real rejection path, not just ``is_valid_credentials``
         (which never runs ``_validate_cross_layer``). The reader narrows
-        ``pagination_style`` to ``{"cursor"}``, so a non-cursor value can't be
-        placed in the slot; instead the slot OMITS ``pagination_style`` (the
-        cross-layer hook defaults it to ``"none"``) while the feature carries a
-        ``cursor_token``, which is the misconfiguration the guard rejects.
+        ``pagination_style`` to ``{"cursor"}`` AND requires it via
+        ``REQUIRED_KEYS``, so no slot that passes validation can omit it (see
+        ``test_omitted_pagination_style_rejected_at_validate_time``); this
+        test bypasses slot validation deliberately: ``build_params`` does not
+        run ``_validate_shape``, so a partial slot without ``pagination_style``
+        (the cross-layer hook defaults it to ``"none"``) paired with a
+        ``cursor_token`` on the feature still exercises the guard's rejection
+        branch directly.
         """
         fs = FeatureSet()
         fs.add(

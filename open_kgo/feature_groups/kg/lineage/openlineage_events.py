@@ -107,39 +107,47 @@ def _walk(
     start: str,
     depth: int,
     remaining: int,
-    seen: set[str] | None = None,
+    emitted: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """BFS along ``edge_map`` from ``start`` up to ``depth`` hops; emit dataset rows.
 
-    Aborts once ``remaining`` rows have been emitted so ``result_limit`` bounds
-    the work walked, not just the output sliced (mirrors ``DbtManifestReader``).
-    When ``seen`` is given it is caller-owned and mutated in place:
-    ``load_data`` passes ONE set (seeded with the start node) to both
-    directional walks so a node that is both upstream and downstream of the
-    start (a cycle through the start) is emitted once under
-    ``lineage_direction=BOTH`` and bills ``result_limit`` once. A node already
-    emitted by an earlier walk is also not re-expanded. ``seen=None`` builds a
-    fresh per-walk set seeded with ``start`` (single-direction semantics,
-    mirrors the dbt sibling's ``_walk_with_node``).
+    Aborts once ``remaining`` NEW rows have been emitted so ``result_limit``
+    bounds the work walked, not just the output sliced (mirrors
+    ``DbtManifestReader``).
+
+    Traversal and emission are deduplicated separately. A local ``visited``
+    set (per walk) terminates cycles and dedups the frontier. ``emitted``,
+    when given, is caller-owned and mutated in place: ``load_data`` passes ONE
+    set (seeded with the start node) to both directional walks so a node that
+    is both upstream and downstream of the start (a cycle through the start)
+    is emitted once under ``lineage_direction=BOTH`` and bills
+    ``result_limit`` once. An already-emitted overlap node is still EXPANDED
+    by the second walk (it costs no budget), so nodes reachable in the second
+    direction only through it are not dropped. ``emitted=None`` builds a
+    fresh set seeded with ``start`` (single-direction semantics, mirrors the
+    dbt sibling's ``_walk_with_node``).
     """
     if depth <= 0 or remaining <= 0:
         return []
-    if seen is None:
-        seen = set()
-    seen.add(start)
+    if emitted is None:
+        emitted = {start}
+    visited: set[str] = {start}
     out: list[dict[str, Any]] = []
     frontier: list[str] = [start]
     for _ in range(depth):
         next_frontier: list[str] = []
         for node in frontier:
             for neighbour in sorted(edge_map.get(node, set())):
-                if neighbour in seen:
+                if neighbour in visited:
                     continue
-                seen.add(neighbour)
+                visited.add(neighbour)
+                next_frontier.append(neighbour)
+                if neighbour in emitted:
+                    continue
+                emitted.add(neighbour)
                 out.append({"name": neighbour, "namespace": namespaces.get(neighbour, "")})
                 if len(out) >= remaining:
                     return out
-                next_frontier.append(neighbour)
         if not next_frontier:
             break
         frontier = next_frontier
@@ -193,14 +201,18 @@ class OpenLineageReader(LineageReader):
         if asset_urn in namespaces and result_limit > 0:
             rows.append({"name": asset_urn, "namespace": namespaces[asset_urn]})
 
-        # One seen set shared across both directional walks: under BOTH, a
+        # One EMITTED set shared across both directional walks: under BOTH, a
         # node reachable in both directions (cycle through the start) must be
-        # emitted once and bill result_limit once.
-        seen: set[str] = {asset_urn}
+        # emitted once and bill result_limit once. Each walk keeps its own
+        # local visited set, so an already-emitted overlap node is still
+        # expanded by the second walk and nodes beyond it are reached.
+        emitted: set[str] = {asset_urn}
         if direction in ("UPSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk(upstream_map, namespaces, asset_urn, upstream_depth, result_limit - len(rows), seen))
+            rows.extend(_walk(upstream_map, namespaces, asset_urn, upstream_depth, result_limit - len(rows), emitted))
         if direction in ("DOWNSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk(downstream_map, namespaces, asset_urn, downstream_depth, result_limit - len(rows), seen))
+            rows.extend(
+                _walk(downstream_map, namespaces, asset_urn, downstream_depth, result_limit - len(rows), emitted)
+            )
 
         return rows
 

@@ -9,7 +9,9 @@ Two families of invariant:
 2. ``SUPPORTED_VALUES`` declarations on concrete plugins satisfy the
    framework invariants enforced by
    ``KgConnectorReaderBase.__init_subclass__``: declared key, strict spec,
-   non-empty narrowed set, narrowed set is a subset of family-allowed.
+   non-empty narrowed set, narrowed set is a subset of family-allowed, and
+   (property-layer keys only) a narrowing that excludes the spec's non-None
+   default puts the key in ``REQUIRED_KEYS`` so omission cannot bypass it.
 
 Plugin modules are loaded via ``_discovery.import_all_kg_readers`` rather than
 a hand-maintained ``# noqa: F401`` block.
@@ -128,6 +130,47 @@ def test_supported_values_invariant_rejects_value_outside_family_allowed() -> No
             class _Bad(NetworkxMemoryReader):
                 CONNECTOR_ID = "_invariant_test_not_subset"
                 SUPPORTED_VALUES = {"retrieval_mode": frozenset({"telepathic"})}
+
+
+def test_supported_values_invariant_rejects_default_excluding_narrowing_without_required_key() -> None:
+    """A property-layer narrowing that excludes the spec default needs the key in REQUIRED_KEYS.
+
+    ``_validate_mapping`` only checks keys present in the slot, so a concrete
+    narrowing ``retrieval_mode`` to ``{graph}`` (excluding the family default
+    ``lexical``) without also requiring the key would let an omitted
+    ``retrieval_mode`` validate and run the reader under a defaulted value it
+    does not honor. Rejected at class definition; adding the key to any
+    ``REQUIRED_KEYS`` group satisfies the invariant (proved by the shipped
+    ``GraphWalkMemoryReader``, and pinned by the positive companion below).
+    """
+    with clean_kg_subclass_registry():
+        with pytest.raises(ValueError, match="missing from REQUIRED_KEYS"):
+
+            class _Bad(NetworkxMemoryReader):
+                CONNECTOR_ID = "_invariant_test_default_excluded"
+                # NetworkxMemoryReader's REQUIRED_KEYS does not list retrieval_mode.
+                SUPPORTED_VALUES = {"retrieval_mode": frozenset({"graph"})}
+
+
+def test_supported_values_invariant_accepts_default_excluding_narrowing_with_required_key() -> None:
+    """Positive companion: the same narrowing passes once the key is in REQUIRED_KEYS.
+
+    The class is built inside a factory so its local binding is reclaimed at
+    factory return (the ``clean_kg_subclass_registry`` leak check would
+    otherwise flag it); only the primitive REQUIRED_KEYS tuple escapes.
+    """
+
+    def _build_and_extract_required() -> tuple[tuple[str, ...], ...]:
+        class _Ok(NetworkxMemoryReader):
+            CONNECTOR_ID = "_invariant_test_default_excluded_ok"
+            REQUIRED_KEYS = NetworkxMemoryReader.REQUIRED_KEYS + (("retrieval_mode",),)
+            SUPPORTED_VALUES = {"retrieval_mode": frozenset({"graph"})}
+
+        return _Ok.REQUIRED_KEYS
+
+    with clean_kg_subclass_registry():
+        observed_required = _build_and_extract_required()
+    assert ("retrieval_mode",) in observed_required
 
 
 # -- __init_subclass__ chain test ---------------------------------------------

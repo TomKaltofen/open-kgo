@@ -11,7 +11,13 @@ terminates on ``meta.next_cursor`` (dropping ``page_size``).
 ``page_size``, terminating when a page returns fewer than ``page_size`` rows,
 so the termination half of the family's counter-pagination branch is
 exercised (there is no per-call page selector; every call concatenates from
-page 1 until termination). ``rate_limit_pace``,
+page 1 until termination). Because both narrowings exclude the family default
+``none``, ``pagination_style`` is in each concrete's ``REQUIRED_KEYS`` (and
+``page_size`` additionally on the paged concrete, whose termination threshold
+must match the fixture's authored page size): ``SUPPORTED_VALUES`` only
+validates keys present in the slot, so omission is closed by the required-key
+check, enforced structurally at class definition by the base's
+omission-bypass invariant. ``rate_limit_pace``,
 ``user_agent``, and ``dataset_version`` remain accepted at the property layer
 and never read (there is no real HTTP client to apply them to). ``entity_type``
 is not a property-layer no-op: it is a per-call param that both shipped

@@ -40,7 +40,13 @@ from open_kgo.feature_groups.kg.mixins import parse_offset_cursor, parse_page_si
 
 class PaginatedCitationReader(CitationRestReader):
     CONNECTOR_ID: ClassVar[str] = "paginated_citation"
-    REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("locator",),)
+    # pagination_style is REQUIRED (not just narrowed): the family default is
+    # "none", which this reader does not honor, and SUPPORTED_VALUES only
+    # validates keys present in the slot. An omitted pagination_style would
+    # otherwise pass is_valid_credentials, serve a cursor-paginated page 1,
+    # and then reject its own continuation token (cursor_token + the
+    # defaulted "none" fails PaginationMixin._validate_cross_layer).
+    REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("locator",), ("pagination_style",))
 
     # pagination_style is narrowed to the cursor style this reader implements;
     # page_size, cursor_token, and entity_type are all RETAINED (the new surface

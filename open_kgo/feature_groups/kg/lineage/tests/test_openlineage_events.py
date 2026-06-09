@@ -317,8 +317,8 @@ def test_both_direction_emits_cycle_node_once(tmp_path: Path) -> None:
     """A node both upstream AND downstream of the start (cycle) appears once under BOTH.
 
     Events form the cycle a -> b -> a, so from ``a`` the node ``b`` is
-    reachable in both directions. The two directional walks share one seen
-    set; a regression to per-walk seen sets would emit ``b`` twice and
+    reachable in both directions. The two directional walks share one EMITTED
+    set; a regression to per-walk emission dedup would emit ``b`` twice and
     double-bill result_limit.
     """
     locator = _write_events_fixture(
@@ -334,6 +334,35 @@ def test_both_direction_emits_cycle_node_once(tmp_path: Path) -> None:
     rows = run_query("openlineage_events", {"locator": locator}, feat)
     names = [r["name"] for r in rows]
     assert sorted(names) == ["a", "b"], f"expected each node once, got {names}"
+
+
+def test_both_direction_expands_overlap_node_reached_by_first_walk(tmp_path: Path) -> None:
+    """A dataset beyond an overlap node is still reached by the second walk under BOTH.
+
+    Topology: edge b -> a (b is upstream of a) plus the downstream chain
+    a -> c -> b -> d. The upstream walk emits ``b`` first; the downstream
+    walk reaches ``b`` again via ``c`` and must still EXPAND it (without
+    re-emitting it) so ``d`` is returned. A regression to one seen set shared
+    for traversal would stop the downstream walk at ``b`` and silently drop
+    ``d``.
+    """
+    locator = _write_events_fixture(
+        tmp_path,
+        {
+            "events": [
+                {"inputs": [{"name": "b", "namespace": "ns"}], "outputs": [{"name": "a", "namespace": "ns"}]},
+                {"inputs": [{"name": "a", "namespace": "ns"}], "outputs": [{"name": "c", "namespace": "ns"}]},
+                {"inputs": [{"name": "c", "namespace": "ns"}], "outputs": [{"name": "b", "namespace": "ns"}]},
+                {"inputs": [{"name": "b", "namespace": "ns"}], "outputs": [{"name": "d", "namespace": "ns"}]},
+            ]
+        },
+    )
+    feat = _lineage_feature("openlineage_events__overlap_both", "a", "BOTH", 1, 3)
+    rows = run_query("openlineage_events", {"locator": locator}, feat)
+    names = [r["name"] for r in rows]
+    assert sorted(names) == ["a", "b", "c", "d"], (
+        f"expected every dataset exactly once (d beyond the overlap node b), got {names}"
+    )
 
 
 def test_non_list_events_value_raises_typed_fixture_error(tmp_path: Path) -> None:

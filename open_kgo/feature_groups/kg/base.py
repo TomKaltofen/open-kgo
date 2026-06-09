@@ -221,8 +221,12 @@ class KgConnectorReaderBase(ReadDB):
     # Used by ``_validate_shape`` and ``_validate_params`` (the latter via
     # ``ParamReader``) so the same hook covers credential and per-call surfaces.
     # Invariant: each ``SUPPORTED_VALUES[key]`` is a non-empty subset of the
-    # spec's allowed set, and the key has ``strict_validation=True``. Enforced
-    # at class-definition time by ``__init_subclass__``.
+    # spec's allowed set, and the key has ``strict_validation=True``. For
+    # property-layer (credential slot) keys, if the narrowed set excludes the
+    # spec's non-None default, the key must also appear in ``REQUIRED_KEYS``
+    # (omission would otherwise bypass the narrowing; see
+    # ``_validate_supported_values_invariant``). Enforced at class-definition
+    # time by ``__init_subclass__``.
     SUPPORTED_VALUES: ClassVar[Mapping[str, frozenset[Any]]] = {}
 
     # Strict-validation enum keys this concrete deliberately accepts at the
@@ -280,6 +284,16 @@ class KgConnectorReaderBase(ReadDB):
           key is meaningless: the family already accepts anything).
         - The narrowed frozenset must be non-empty and a subset of the spec's
           allowed set.
+        - Omission-bypass guard (property-layer keys only): when the narrowed
+          set excludes the spec's non-None default, the key must appear in
+          some ``REQUIRED_KEYS`` group. ``_validate_mapping`` only checks keys
+          PRESENT in the slot, so without the requirement an omitted key would
+          validate and the reader would run under a defaulted value it does
+          not honor (e.g. serve a cursor-paginated page 1, then reject its own
+          continuation token because the cross-layer guard defaults the style
+          to ``"none"``). Per-call params are out of scope: there is no
+          slot-omission concept on that layer (``build_params`` simply leaves
+          absent keys out of the params dict).
         """
         if not cls.SUPPORTED_VALUES:
             return
@@ -307,6 +321,21 @@ class KgConnectorReaderBase(ReadDB):
                 raise ValueError(
                     f"{cls.__name__}.SUPPORTED_VALUES[{key!r}]={sorted(narrowed)} is not a "
                     f"subset of the family-allowed set {sorted(allowed)}."
+                )
+            default = spec.get(DefaultOptionKeys.default)
+            if (
+                key in cls.PROPERTY_MAPPING
+                and default is not None
+                and default not in narrowed
+                and not any(key in group for group in cls.REQUIRED_KEYS)
+            ):
+                raise ValueError(
+                    f"{cls.__name__}.SUPPORTED_VALUES[{key!r}]={sorted(narrowed)} excludes the "
+                    f"spec default {default!r} but {key!r} is missing from REQUIRED_KEYS. "
+                    f"_validate_mapping only checks keys present in the credential slot, so an "
+                    f"omitted {key!r} would bypass the narrowing and the reader would run under "
+                    f"a defaulted value it does not honor. Add ({key!r},) to REQUIRED_KEYS, or "
+                    f"widen the narrowed set to include the default."
                 )
 
     def load(self, features: FeatureSet) -> Any:

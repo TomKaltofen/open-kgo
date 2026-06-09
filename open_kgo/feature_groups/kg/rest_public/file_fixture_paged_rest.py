@@ -26,6 +26,15 @@ page-number end-of-collection signal), or when ``result_limit`` is reached.
   short-page signal; the walk then terminates cleanly via file exhaustion
   (no successor ``page_<N>.json`` file).
 
+Because the threshold must match the fixture's authored page size, both
+``pagination_style`` and ``page_size`` are in ``REQUIRED_KEYS``: an omitted
+``pagination_style`` would bypass the ``SUPPORTED_VALUES`` narrowing (only
+keys present in the slot are validated) and run under the family default
+``none``, and an omitted ``page_size`` would default to the family's 100,
+which makes any committed fixture page look final and silently drops every
+later page. Omitting either key is rejected at ``is_valid_credentials`` /
+``_validate_shape`` time via ``MissingRequiredKeysError``.
+
 There is no per-call page selector (the concrete strips ``cursor_token`` /
 ``entity_type`` per-call params and the family declares no page-number
 param): every call concatenates rows from page 1 until termination.
@@ -52,7 +61,16 @@ from open_kgo.feature_groups.kg.rest_public.file_fixture_rest import _page_index
 
 class FileFixturePagedRestReader(RestPublicReader):
     CONNECTOR_ID: ClassVar[str] = "file_fixture_paged_rest"
-    REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("locator",),)
+    # pagination_style is REQUIRED (not just narrowed): the family default is
+    # "none", which this reader does not honor, and SUPPORTED_VALUES only
+    # validates keys present in the slot. An omitted pagination_style would
+    # otherwise pass is_valid_credentials and silently run the page walk
+    # under a defaulted "none" label.
+    # page_size is REQUIRED too (this reader only): it is the walk's
+    # termination threshold and must match the fixture's authored page size;
+    # the family default of 100 makes any authored page look like the final
+    # (short) page and silently truncates fixture corpora to page 1.
+    REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("locator",), ("pagination_style",), ("page_size",))
 
     # ``page_size`` is RETAINED (the new surface this concrete honors, vs. the
     # cursor concrete which drops it). ``cursor_token`` and ``entity_type`` are

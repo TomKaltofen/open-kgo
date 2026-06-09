@@ -94,44 +94,52 @@ def _walk_packages(
     start: str,
     depth: int,
     remaining: int,
-    seen: set[str],
+    emitted: set[str],
 ) -> list[dict[str, Any]]:
     """BFS along ``edge_map`` from ``start`` up to ``depth`` hops; emit package rows.
 
-    Aborts once ``remaining`` rows have been emitted so ``result_limit`` bounds
-    the work walked, not just the output sliced (mirrors the lineage readers).
-    Packages are routed through ``copy_cached_row`` so the shared cached SBOM
-    stays read-only when a row escapes to a caller.
+    Aborts once ``remaining`` NEW rows have been emitted so ``result_limit``
+    bounds the work walked, not just the output sliced (mirrors the lineage
+    readers). Packages are routed through ``copy_cached_row`` so the shared
+    cached SBOM stays read-only when a row escapes to a caller.
 
-    ``seen`` is supplied (and mutated) by the caller so ``lineage_direction``
-    = ``BOTH`` shares ONE visited set across its upstream and downstream
-    walks: a package reachable in both directions (e.g. on a dependency
-    cycle) is emitted once, never double-billed against ``result_limit``
-    (the second walk also does not re-traverse through already-seen nodes).
+    Traversal and emission are deduplicated separately. A local ``visited``
+    set (per walk) terminates cycles and dedups the frontier. ``emitted`` is
+    supplied (and mutated) by the caller so ``lineage_direction`` = ``BOTH``
+    dedups EMISSION across its upstream and downstream walks: a package
+    reachable in both directions (e.g. on a dependency cycle) is emitted once
+    and never double-billed against ``result_limit``, yet the second walk
+    still EXPANDS it, so packages reachable in the second direction only
+    through such an overlap node are not dropped.
     A ``start`` absent from ``packages_index`` is itself a dangling node and
     is not traversed, keeping the dangling-node rule below uniform for every
     node including the start.
     """
     if depth <= 0 or remaining <= 0 or start not in packages_index:
         return []
+    visited: set[str] = {start}
     out: list[dict[str, Any]] = []
     frontier: list[str] = [start]
     for _ in range(depth):
         next_frontier: list[str] = []
         for node in frontier:
             for neighbour in edge_map.get(node, []):
-                if neighbour in seen:
+                if neighbour in visited:
                     continue
-                seen.add(neighbour)
+                visited.add(neighbour)
                 # A neighbour absent from ``packages_index`` is a dangling edge:
                 # it is neither emitted NOR traversed, so a real package reachable
                 # only THROUGH a missing intermediate stays unreachable (the
                 # "dangling edges skipped" contract covers transit nodes too).
-                if neighbour in packages_index:
-                    out.append(copy_cached_row(packages_index[neighbour]))
-                    if len(out) >= remaining:
-                        return out
-                    next_frontier.append(neighbour)
+                if neighbour not in packages_index:
+                    continue
+                next_frontier.append(neighbour)
+                if neighbour in emitted:
+                    continue
+                emitted.add(neighbour)
+                out.append(copy_cached_row(packages_index[neighbour]))
+                if len(out) >= remaining:
+                    return out
         if not next_frontier:
             break
         frontier = next_frontier
@@ -205,16 +213,21 @@ class SpdxSbomReader(CodeBuildReader):
         if start in packages_index:
             rows.append(copy_cached_row(packages_index[start]))
 
-        # One seen set shared by both walks: under BOTH, a package on a cycle
-        # is reachable in either direction but must be emitted at most once.
-        seen: set[str] = {start}
+        # One EMITTED set shared by both walks: under BOTH, a package on a
+        # cycle is reachable in either direction but must be emitted (and
+        # billed against result_limit) at most once. Each walk keeps its own
+        # local visited set, so an already-emitted overlap package is still
+        # expanded by the second walk and packages beyond it are reached.
+        emitted: set[str] = {start}
         if direction in ("UPSTREAM", "BOTH") and len(rows) < result_limit:
             rows.extend(
-                _walk_packages(upstream_map, packages_index, start, upstream_depth, result_limit - len(rows), seen)
+                _walk_packages(upstream_map, packages_index, start, upstream_depth, result_limit - len(rows), emitted)
             )
         if direction in ("DOWNSTREAM", "BOTH") and len(rows) < result_limit:
             rows.extend(
-                _walk_packages(downstream_map, packages_index, start, downstream_depth, result_limit - len(rows), seen)
+                _walk_packages(
+                    downstream_map, packages_index, start, downstream_depth, result_limit - len(rows), emitted
+                )
             )
 
         return rows

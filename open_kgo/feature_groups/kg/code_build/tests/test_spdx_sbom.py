@@ -198,7 +198,7 @@ class TestSpdxSbomReader(CodeBuildContractTestBase):
 
         Fixture: ``cycle-a DEPENDS_ON cycle-b`` and ``cycle-b DEPENDS_ON
         cycle-a``, so cycle-b is reachable both upstream and downstream of
-        cycle-a. The two walks share one seen set; without it the result
+        cycle-a. The two walks share one EMITTED set; without it the result
         would be [cycle-a, cycle-b, cycle-b] and result_limit would be
         double-billed.
         """
@@ -218,6 +218,71 @@ class TestSpdxSbomReader(CodeBuildContractTestBase):
         rows = run_query("spdx_sbom", self.valid_credentials()["spdx_sbom"], feat)
         names = [r["name"] for r in rows]
         assert sorted(names) == ["cycle-a", "cycle-b"]
+
+    def test_both_direction_expands_overlap_node_reached_by_first_walk(self, tmp_path: Path) -> None:
+        """A package beyond an overlap node is still reached by the second walk under BOTH.
+
+        Topology: ``dep-a DEPENDS_ON dep-b``, ``dep-c DEPENDS_ON dep-a``,
+        ``dep-b DEPENDS_ON dep-c``, ``dep-d DEPENDS_ON dep-b``. From dep-a,
+        the upstream walk emits dep-b (1 hop) and dep-c (2 hops); the
+        downstream walk runs dep-a -> dep-c -> dep-b -> dep-d, reaching the
+        already-emitted dep-c and dep-b, which it must still EXPAND (without
+        re-emitting them) so dep-d is returned at hop 3. A regression to one
+        seen set shared for traversal would stop the downstream walk at dep-c
+        and silently drop dep-d.
+        """
+        import json
+
+        from open_kgo.feature_groups.kg.tests._helpers import run_query
+
+        sbom = {
+            "packages": [
+                {"SPDXID": "SPDXRef-Package-dep-a", "name": "dep-a"},
+                {"SPDXID": "SPDXRef-Package-dep-b", "name": "dep-b"},
+                {"SPDXID": "SPDXRef-Package-dep-c", "name": "dep-c"},
+                {"SPDXID": "SPDXRef-Package-dep-d", "name": "dep-d"},
+            ],
+            "relationships": [
+                {
+                    "spdxElementId": "SPDXRef-Package-dep-a",
+                    "relationshipType": "DEPENDS_ON",
+                    "relatedSpdxElement": "SPDXRef-Package-dep-b",
+                },
+                {
+                    "spdxElementId": "SPDXRef-Package-dep-c",
+                    "relationshipType": "DEPENDS_ON",
+                    "relatedSpdxElement": "SPDXRef-Package-dep-a",
+                },
+                {
+                    "spdxElementId": "SPDXRef-Package-dep-b",
+                    "relationshipType": "DEPENDS_ON",
+                    "relatedSpdxElement": "SPDXRef-Package-dep-c",
+                },
+                {
+                    "spdxElementId": "SPDXRef-Package-dep-d",
+                    "relationshipType": "DEPENDS_ON",
+                    "relatedSpdxElement": "SPDXRef-Package-dep-b",
+                },
+            ],
+        }
+        fixture = tmp_path / "overlap.spdx.json"
+        fixture.write_text(json.dumps(sbom), encoding="utf-8")
+        feat = Feature(
+            "spdx_sbom__overlap_both",
+            options=Options(
+                context={
+                    "start_spdx_id": "SPDXRef-Package-dep-a",
+                    "lineage_direction": "BOTH",
+                    "upstream_depth": 3,
+                    "downstream_depth": 3,
+                }
+            ),
+        )
+        rows = run_query("spdx_sbom", {"manifest_path": str(fixture), "locator": str(fixture)}, feat)
+        names = [r["name"] for r in rows]
+        assert sorted(names) == ["dep-a", "dep-b", "dep-c", "dep-d"], (
+            f"expected every package exactly once (dep-d beyond the overlap nodes), got {names}"
+        )
 
     def test_self_loop_emits_no_duplicate(self) -> None:
         """A self-loop (``self-loop DEPENDS_ON self-loop``) yields only the start row once."""
