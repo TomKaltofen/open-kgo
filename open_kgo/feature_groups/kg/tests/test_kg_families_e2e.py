@@ -562,7 +562,10 @@ def test_cross_family_asymmetry_catalog() -> None:
         ``locator`` for a closed, matcher-safe ``tenant`` enum, and the sibling ``paginated_tuple_store``
         is this family's configurable concrete. See ``kg/saas_authz/in_process_tuple_store.py``.
       - ``network_pg.kuzu_cypher`` is the only connector that builds its backend at test time rather than
-        reading a committed fixture. (Candidate for follow-up.)
+        reading a committed fixture. INTENTIONAL and documented (resolved per issue #20): Kuzu's on-disk
+        store is a binary, version-coupled format, so a committed fixture would be fragile across ``kuzu``
+        upgrades; the sibling ``grand_cypher`` reads a committed ``.gml``, so the family shows both shapes.
+        See the DESIGN NOTE in ``kg/network_pg/tests/test_kuzu_cypher.py``.
     """
     by_input: dict[str, list[str]] = defaultdict(list)
     by_locator: dict[str, list[str]] = defaultdict(list)
