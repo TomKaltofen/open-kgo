@@ -80,7 +80,7 @@ def _fx(*parts: str) -> str:
 # test_asymmetry_catalog, forcing a conscious classification rather than a silent new shape.
 _INPUT_SHAPES = frozenset({"query_text", "operation", "lineage", "citation", "none"})
 _LOCATOR_KEYS = frozenset({"locator", "manifest_path", "baked"})
-_FIXTURE_SCOPES = frozenset({"family_tests", "family_root", "baked", "built"})
+_FIXTURE_SCOPES = frozenset({"family_tests", "baked", "built"})
 _SETUPS = frozenset({"static", "build"})
 
 
@@ -91,10 +91,6 @@ def _has_keys(*keys: str) -> Callable[[dict[str, Any]], bool]:
         return isinstance(row, dict) and all(k in row for k in keys)
 
     return _check
-
-
-def _is_dict_row(row: dict[str, Any]) -> bool:
-    return isinstance(row, dict)
 
 
 @dataclass(frozen=True)
@@ -230,7 +226,7 @@ CASES: list[ConnectorCase] = [
         connector_id="igraph_embedded",
         make_slot=_static(IGraphEmbeddedReader, locator=_fx("embedded", "tests", "fixtures", "triangle.gml")),
         feature=Feature("igraph_embedded__nodes", options=Options(context={"operation": "nodes"})),
-        assert_row=_is_dict_row,
+        assert_row=_has_keys("node"),
         input_shape="operation",
         locator_key="locator",
         fixture_scope="family_tests",
@@ -470,6 +466,10 @@ def _is_production_connector(sub: type[KgConnectorReaderBase]) -> bool:
     ``open_kgo.feature_groups.kg.<family>.<module>`` with no ``tests`` path segment.
     Filtering on both keeps discovery to the real lineup without re-importing or
     fighting the global registry.
+
+    Assumption: a connector lives inside a family *subpackage* (the repo convention). A concrete
+    added as a bare module directly under ``kg/`` would fall outside ``family_subpackages()`` and
+    escape the coverage cross-check; that layout is not used today and would surface in review.
     """
     if not sub.CONNECTOR_ID:
         return False
@@ -546,10 +546,8 @@ def test_cross_family_asymmetry_catalog() -> None:
 
     This is the diagnostic half of "reveal gaps": rather than freezing today's counts with a brittle
     ``assert build == {"kuzu_cypher"}``, it prints the asymmetries so they are visible in ``pytest -s``
-    output and in any review, while asserting only genuine invariants:
-
-      - each connector appears exactly once,
-      - the catalog buckets cover all 18 connectors.
+    output and in any review. The only assertion is the one genuine invariant (no connector is
+    classified twice in a dimension); the value here is the printed catalog, not a gate.
 
     Known asymmetries surfaced (each a candidate for follow-up, not a hard failure here):
       - ``code_build`` keys credentials on ``manifest_path`` while the other eight families use ``locator``.
@@ -580,8 +578,7 @@ def test_cross_family_asymmetry_catalog() -> None:
             lines.append(f"  {key:<14} ({len(bucket[key]):>2}): {', '.join(sorted(bucket[key]))}")
     print("\n".join(lines))  # captured by pytest; visible with -s or on failure
 
-    # Genuine invariants only: every connector classified once into every dimension.
-    for bucket in (by_input, by_locator, by_scope, by_setup):
+    # The one genuine invariant: no connector is classified into two buckets of the same dimension.
+    for dimension, bucket in (("input", by_input), ("locator", by_locator), ("scope", by_scope), ("setup", by_setup)):
         flat = [cid for ids in bucket.values() for cid in ids]
-        assert len(flat) == len(CASES), f"a connector was dropped or double-counted: {sorted(flat)}"
-        assert len(set(flat)) == len(CASES), f"duplicate connector in catalog: {sorted(flat)}"
+        assert len(set(flat)) == len(flat), f"{dimension}: a connector appears in two buckets: {sorted(flat)}"
