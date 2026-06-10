@@ -48,7 +48,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Iterable, TypeVar
 from urllib.parse import urlparse
 
 # SAXException is used purely as a parent class for narrowing the
@@ -90,6 +90,23 @@ def copy_cached_row(value: Any) -> Any:
     contract already tolerates them.
     """
     return {**value} if isinstance(value, dict) else value
+
+
+def copy_cached_rows(rows: Iterable[Any], limit: int) -> list[dict[str, Any]]:
+    """Copy up to ``limit`` rows from a shared cached fixture into a fresh list.
+
+    The "route each emitted row through ``copy_cached_row``, stop at the
+    cap" loop used to be spelled inline by every flat-list fixture reader
+    (REST page walks, CycloneDX components). Centralising it keeps the
+    cache-immutability enforcement point impossible to forget when a new
+    fixture-backed concrete lands: the copy and the bound travel together.
+    """
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        out.append(copy_cached_row(row))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _rejected_scheme(locator: Any) -> str | None:

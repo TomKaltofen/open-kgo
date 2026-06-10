@@ -48,7 +48,7 @@ from typing import Any, ClassVar, Mapping
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
 from open_kgo.feature_groups.kg.base import LoadContext
-from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
+from open_kgo.feature_groups.kg.fixtures import copy_cached_rows, load_json_fixture
 from open_kgo.feature_groups.kg.mixins import parse_page_size
 from open_kgo.feature_groups.kg.rest_public.base import (
     RestPublicFeatureGroup,
@@ -112,10 +112,9 @@ class FileFixturePagedRestReader(RestPublicReader):
         for page_file in page_files:
             body = load_json_fixture(cls.CONNECTOR_ID, page_file)
             results = body.get("results", [])
-            for row in results:
-                rows.append(copy_cached_row(row))
-                if len(rows) >= ctx.result_limit:
-                    return rows
+            rows.extend(copy_cached_rows(results, ctx.result_limit - len(rows)))
+            if len(rows) >= ctx.result_limit:
+                return rows
             # Page-number termination: a page shorter than ``page_size`` is the
             # last page of the collection, so stop rather than reading further
             # files (mirrors how a real page-number API signals exhaustion).

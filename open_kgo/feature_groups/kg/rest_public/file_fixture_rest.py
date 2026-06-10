@@ -33,7 +33,7 @@ from typing import Any, ClassVar, Mapping
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
 from open_kgo.feature_groups.kg.base import LoadContext, narrow_property_mapping
-from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
+from open_kgo.feature_groups.kg.fixtures import copy_cached_rows, load_json_fixture
 from open_kgo.feature_groups.kg.rest_public.base import (
     RestPublicFeatureGroup,
     RestPublicReader,
@@ -98,12 +98,11 @@ class FileFixtureRestReader(RestPublicReader):
             # the same pages on every load. The glob
             # itself is cheap and stays uncached.
             body = load_json_fixture(cls.CONNECTOR_ID, page_file)
-            for row in body.get("results", []):
-                # ``body`` is the cached page dict; copy_cached_row keeps the
-                # cache read-only when the row is handed to a downstream consumer.
-                rows.append(copy_cached_row(row))
-                if len(rows) >= ctx.result_limit:
-                    return rows
+            # ``body`` is the cached page dict; copy_cached_rows keeps the
+            # cache read-only when rows are handed to a downstream consumer.
+            rows.extend(copy_cached_rows(body.get("results", []), ctx.result_limit - len(rows)))
+            if len(rows) >= ctx.result_limit:
+                return rows
             if not body.get("meta", {}).get("next_cursor"):
                 break
         return rows

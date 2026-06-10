@@ -23,7 +23,7 @@ from open_kgo.feature_groups.kg.code_build.base import (
     CodeBuildFeatureGroup,
     CodeBuildReader,
 )
-from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
+from open_kgo.feature_groups.kg.fixtures import copy_cached_rows, load_json_fixture
 
 
 class CycloneDxSbomReader(CodeBuildReader):
@@ -50,11 +50,10 @@ class CycloneDxSbomReader(CodeBuildReader):
     def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
         sbom = connection
 
-        # Slice to result_limit *before* copying so we only copy the rows we
-        # emit; copy_cached_row keeps the shared cached SBOM read-only when a
-        # component is returned to a caller (see ``_connect_from_slot``).
-        components = sbom.get("components", [])[: ctx.result_limit]
-        return [copy_cached_row(c) for c in components]
+        # copy_cached_rows copies only the rows it emits and keeps the shared
+        # cached SBOM read-only when a component is returned to a caller (see
+        # ``_connect_from_slot``).
+        return copy_cached_rows(sbom.get("components", []), ctx.result_limit)
 
 
 class CycloneDxSbomFeatureGroup(CodeBuildFeatureGroup):
