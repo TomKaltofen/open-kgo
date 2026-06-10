@@ -76,6 +76,7 @@ from open_kgo.feature_groups.kg.errors import (
     PropertyMappingCollision,
 )
 from open_kgo.compute_frameworks.python_dict_kg_framework import KgPythonDictFramework
+from open_kgo.feature_groups.kg.spec import property_spec
 
 
 @dataclass(frozen=True)
@@ -164,14 +165,11 @@ def narrow_property_mapping(source: dict[str, Any], *exclude: str) -> dict[str, 
 
 
 _UNIVERSAL_PROPERTY_MAPPING: dict[str, Any] = {
-    "locator": {
-        "explanation": "Endpoint URL or filesystem path. May be None for purely in-process backends.",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: None,
-    },
-    "ontology": {
-        "explanation": (
+    "locator": property_spec(
+        "Endpoint URL or filesystem path. May be None for purely in-process backends.",
+    ),
+    "ontology": property_spec(
+        (
             "Path to a YAML ontology definition file. Declares entity types, valid outgoing "
             "relationship types per entity, and domain/range constraints per relationship. "
             "When supplied, the file is loaded into OntologyRegistry under the namespace "
@@ -179,12 +177,9 @@ _UNIVERSAL_PROPERTY_MAPPING: dict[str, Any] = {
             "OntologyRegistry using ctx.ontology_namespace. Optional: connectors without "
             "an ontology file behave exactly as before (no validation applied)."
         ),
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: None,
-    },
-    "result_limit": {
-        "explanation": (
+    ),
+    "result_limit": property_spec(
+        (
             "Maximum rows/records returned per query (bound-output semantics). "
             "Concrete readers MUST short-circuit work when the limit is reached "
             "rather than walking the full source then slicing. Slicing-at-end "
@@ -194,10 +189,8 @@ _UNIVERSAL_PROPERTY_MAPPING: dict[str, Any] = {
             "a fully-materialized list of bounded size (i.e. the JSON parser "
             "produced it for you and walking it is O(result_limit) anyway)."
         ),
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: 1000,
-    },
+        default=1000,
+    ),
 }
 
 

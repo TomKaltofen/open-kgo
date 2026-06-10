@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
-
 from open_kgo.feature_groups.kg.base import (
     KgConnectorFeatureGroupBase,
     ParamReader,
     compose_property_mapping,
 )
 from open_kgo.feature_groups.kg.mixins import EntityFilterParamMixin, TraversalMixin
+from open_kgo.feature_groups.kg.spec import property_spec
 
 
 class LineageReader(ParamReader):
@@ -24,12 +23,9 @@ class LineageReader(ParamReader):
         TraversalMixin.PARAMS_MAPPING_DELTA,
         EntityFilterParamMixin.PARAMS_MAPPING_DELTA,
         {
-            "asset_urn": {
-                "explanation": "URN of the starting asset (DataHub/Atlas style).",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
+            "asset_urn": property_spec(
+                "URN of the starting asset (DataHub/Atlas style).",
+            ),
         },
         context="LineageReader.PARAMS_MAPPING",
     )
