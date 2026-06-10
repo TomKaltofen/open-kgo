@@ -49,88 +49,34 @@ def _():
 
     import networkx as nx
 
-    from open_kgo.feature_groups.kg.ontology.registry import OntologyRegistry
-
     DEMO_DIR = Path(__file__).parent
-    DATA_DIR = DEMO_DIR / "data"
     _ROOT = DEMO_DIR.parent
     if str(_ROOT) not in sys.path:
         sys.path.insert(0, str(_ROOT))
-    from demo.data import ensure_data
+    from demo import qa_eval_lib as lib
 
-    ensure_data()
-    ONTOLOGY_YAML = (
-        Path(__file__).parent.parent
-        / "open_kgo"
-        / "feature_groups"
-        / "kg"
-        / "ontology"
-        / "tests"
-        / "fixtures"
-        / "metaqa_ontology.yaml"
-    )
-    GML_FILE = DATA_DIR / "metaqa_sample.gml"
-    TINY_GML = (
-        Path(__file__).parent.parent
-        / "open_kgo"
-        / "feature_groups"
-        / "kg"
-        / "ontology"
-        / "tests"
-        / "fixtures"
-        / "metaqa_tiny.gml"
-    )
-
-    OntologyRegistry._clear()
-    OntologyRegistry.load_file(str(ONTOLOGY_YAML))
-
-    graph: nx.MultiDiGraph = nx.read_gml(str(GML_FILE))
-    tiny: nx.MultiDiGraph = nx.read_gml(str(TINY_GML))
+    graph = lib.load_sample_graph()
+    tiny: nx.MultiDiGraph = nx.read_gml(str(lib.TINY_GML))
 
     random.seed(42)
 
-    return DATA_DIR, DEMO_DIR, GML_FILE, ONTOLOGY_YAML, OntologyRegistry, Path, TINY_GML, graph, nx, random, tiny
+    return graph, lib, random, tiny
 
 
 @app.cell
-def _():
+def _(lib):
     # ---------------------------------------------------------------------------
-    # Traversal implementations
+    # Traversal implementations: the shared hop primitives from qa_eval_lib,
+    # wrapped to return sorted lists (this notebook compares results literally).
     # ---------------------------------------------------------------------------
 
     def arch1_traverse(g, start, relation):
         """Architecture 1: follow any edge matching relation. No type checking."""
-        if start not in g:
-            return []
-        return sorted({t for _, t, d in g.out_edges(start, data=True) if d.get("relation") == relation})
+        return sorted(lib.arch1_hop(g, start, relation))
 
     def arch2_traverse(g, start, relation, namespace="movie"):
         """Architecture 2: check entity type before traversal; validate range on arrival."""
-        # Local import (mirrors arch2_hop in eval_qa_accuracy_2hop.py): keeps the
-        # registry reference resolvable within this cell's function scope rather
-        # than relying on marimo's cross-cell global injection.
-        from open_kgo.feature_groups.kg.ontology.registry import OntologyRegistry
-
-        entity_type = g.nodes[start].get("type", "Unknown")
-        if not OntologyRegistry.is_valid_edge(namespace, entity_type, relation):
-            raise ValueError(
-                f"Ontology violation: '{relation}' is not valid from "
-                f"entity type '{entity_type}' in namespace '{namespace}'."
-            )
-        expected_range = OntologyRegistry.get_range_type(namespace, relation)
-        seen: set[str] = set()
-        for _, t, d in g.out_edges(start, data=True):
-            if d.get("relation") != relation:
-                continue
-            if expected_range is not None:
-                target_type = g.nodes[t].get("type", "Unknown")
-                if target_type != expected_range:
-                    raise ValueError(
-                        f"Range violation: '{relation}' expects range '{expected_range}' "
-                        f"but reached node '{t}' of type '{target_type}'."
-                    )
-            seen.add(t)
-        return sorted(seen)
+        return sorted(lib.arch2_hop(g, start, relation, namespace))
 
     return arch1_traverse, arch2_traverse
 
