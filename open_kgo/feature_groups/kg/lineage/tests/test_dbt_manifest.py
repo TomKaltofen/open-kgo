@@ -11,6 +11,7 @@ from open_kgo.feature_groups.kg.lineage.dbt_manifest import DbtManifestReader
 from open_kgo.feature_groups.kg.lineage.tests.kg_lineage_contract import (
     LineageContractTestBase,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "manifest.json"
@@ -23,12 +24,7 @@ class TestDbtManifestReader(LineageContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "dbt_manifest": {
-                "locator": str(_FIXTURE),
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(cls.connector_reader_class(), locator=str(_FIXTURE), result_limit=100)
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

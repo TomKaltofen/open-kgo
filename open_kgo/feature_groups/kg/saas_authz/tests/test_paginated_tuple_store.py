@@ -22,6 +22,7 @@ from open_kgo.feature_groups.kg.saas_authz.paginated_tuple_store import (
 from open_kgo.feature_groups.kg.saas_authz.tests.kg_saas_authz_contract import (
     SaasAuthzContractTestBase,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "tuples_b.json"
@@ -34,18 +35,16 @@ class TestPaginatedTupleStoreReader(SaasAuthzContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "paginated_tuple_store": {
-                "locator": str(_FIXTURE),
-                "tenant": "tenant_b",
-                "api_version": "v1.0",
-                "relationship_type": "viewer",
-                "consistency_mode": "minimize_latency",
-                "pagination_style": "cursor",
-                "page_size": 2,
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(),
+            locator=str(_FIXTURE),
+            tenant="tenant_b",
+            api_version="v1.0",
+            relationship_type="viewer",
+            pagination_style="cursor",
+            page_size=2,
+            result_limit=100,
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

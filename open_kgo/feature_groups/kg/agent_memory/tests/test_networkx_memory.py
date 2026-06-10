@@ -20,6 +20,7 @@ from open_kgo.feature_groups.kg.errors import (
     InvalidCredentialShape,
     UnknownMemoryScopeError,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "memories.json"
@@ -32,17 +33,9 @@ class TestNetworkxMemoryReader(AgentMemoryContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "networkx_memory": {
-                "locator": str(_FIXTURE),
-                "memory_scope_user_id": "user_42",
-                "retrieval_mode": "lexical",
-                "pagination_style": "none",
-                "result_limit": 100,
-                "threshold": 0.0,
-                "mmr_lambda": 0.5,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(), locator=str(_FIXTURE), memory_scope_user_id="user_42", result_limit=100
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

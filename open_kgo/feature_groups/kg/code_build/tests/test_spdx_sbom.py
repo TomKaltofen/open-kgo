@@ -25,6 +25,7 @@ from open_kgo.feature_groups.kg.code_build.tests.kg_code_build_contract import (
     CodeBuildContractTestBase,
 )
 from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "sample.spdx.json"
@@ -39,16 +40,15 @@ class TestSpdxSbomReader(CodeBuildContractTestBase):
     def valid_credentials(cls) -> dict[str, Any]:
         # REQUIRED_KEYS lists manifest_path / locator as alternatives; the
         # per-alternative coherence contract requires every alternative present.
-        return {
-            "spdx_sbom": {
-                "manifest_path": str(_FIXTURE),
-                "locator": str(_FIXTURE),
-                "commit_sha": "a1b2c3d4",
-                "branch": "main",
-                "language_code": "python",
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(),
+            manifest_path=str(_FIXTURE),
+            locator=str(_FIXTURE),
+            commit_sha="a1b2c3d4",
+            branch="main",
+            language_code="python",
+            result_limit=100,
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

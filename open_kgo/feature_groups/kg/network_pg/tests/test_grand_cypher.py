@@ -20,6 +20,7 @@ from open_kgo.feature_groups.kg.network_pg.grand_cypher import GrandCypherReader
 from open_kgo.feature_groups.kg.network_pg.tests.kg_network_pg_contract import (
     NetworkPropertyGraphContractTestBase,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE_GML = Path(__file__).parent / "fixtures" / "org.gml"
@@ -46,15 +47,9 @@ class TestGrandCypherReader(NetworkPropertyGraphContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "grand_cypher": {
-                "locator": str(_FIXTURE_GML),
-                "dataset": "default",
-                "read_consistency": "read",
-                "transaction_mode": "auto",
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(), locator=str(_FIXTURE_GML), dataset="default", result_limit=100
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

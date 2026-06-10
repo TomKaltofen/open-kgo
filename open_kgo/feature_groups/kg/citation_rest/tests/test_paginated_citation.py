@@ -18,6 +18,7 @@ from open_kgo.feature_groups.kg.citation_rest.tests.kg_citation_rest_contract im
 )
 from open_kgo.feature_groups.kg.errors import InvalidCredentialShape, MissingRequiredKeysError
 from open_kgo.feature_groups.kg.mixins import parse_offset_cursor
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "citations.json"
@@ -30,16 +31,15 @@ class TestPaginatedCitationReader(CitationRestContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "paginated_citation": {
-                "locator": str(_FIXTURE),
-                "pagination_style": "cursor",
-                "page_size": 2,
-                "species_prefix": "HSA",
-                "dataset_version": "v1",
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(),
+            locator=str(_FIXTURE),
+            pagination_style="cursor",
+            page_size=2,
+            species_prefix="HSA",
+            dataset_version="v1",
+            result_limit=100,
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

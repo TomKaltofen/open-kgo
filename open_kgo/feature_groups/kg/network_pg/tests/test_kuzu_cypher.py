@@ -50,6 +50,7 @@ from open_kgo.feature_groups.kg.network_pg.kuzu_cypher import KuzuCypherReader
 from open_kgo.feature_groups.kg.network_pg.tests.kg_network_pg_contract import (
     NetworkPropertyGraphContractTestBase,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 def _seed_kuzu_db(db_dir: Path) -> None:
@@ -85,15 +86,7 @@ class TestKuzuCypherReader(NetworkPropertyGraphContractTestBase):
         # may be set by setup_method on the running test instance. We fall back
         # to a placeholder for tests that don't actually load (shape-only tests).
         path = str(cls._tmp) if cls._tmp is not None else "/tmp/kg_kuzu_placeholder"
-        return {
-            "kuzu_cypher": {
-                "locator": path,
-                "dataset": "default",
-                "read_consistency": "read",
-                "transaction_mode": "auto",
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(cls.connector_reader_class(), locator=path, dataset="default", result_limit=100)
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

@@ -11,6 +11,7 @@ from open_kgo.feature_groups.kg.code_build.cyclonedx_sbom import CycloneDxSbomRe
 from open_kgo.feature_groups.kg.code_build.tests.kg_code_build_contract import (
     CodeBuildContractTestBase,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "sample.cdx.json"
@@ -30,16 +31,15 @@ class TestCycloneDxSbomReader(CodeBuildContractTestBase):
         # only exercises the manifest_path branch from connect() directly;
         # the coherence test pops one alternative at a time and re-calls
         # connect(), which is where the locator branch is exercised.
-        return {
-            "cyclonedx_sbom": {
-                "manifest_path": str(_FIXTURE),
-                "locator": str(_FIXTURE),
-                "commit_sha": "a1b2c3d4",
-                "branch": "main",
-                "language_code": "python",
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(),
+            manifest_path=str(_FIXTURE),
+            locator=str(_FIXTURE),
+            commit_sha="a1b2c3d4",
+            branch="main",
+            language_code="python",
+            result_limit=100,
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

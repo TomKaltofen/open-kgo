@@ -14,6 +14,7 @@ from open_kgo.feature_groups.kg.embedded.networkx_embedded import (
 from open_kgo.feature_groups.kg.embedded.tests.kg_embedded_contract import (
     EmbeddedContractTestBase,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE_GML = Path(__file__).parent / "fixtures" / "triangle.gml"
@@ -26,15 +27,7 @@ class TestNetworkxEmbeddedReader(EmbeddedContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "networkx_embedded": {
-                "locator": str(_FIXTURE_GML),
-                "graph_file_format": "gml",
-                "read_only": True,
-                "max_threads": 1,
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(cls.connector_reader_class(), locator=str(_FIXTURE_GML), result_limit=100)
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

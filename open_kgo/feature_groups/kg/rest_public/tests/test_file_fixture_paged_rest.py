@@ -18,6 +18,7 @@ from open_kgo.feature_groups.kg.rest_public.file_fixture_paged_rest import (
 from open_kgo.feature_groups.kg.rest_public.tests.kg_rest_public_contract import (
     RestPublicContractTestBase,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "paged"
@@ -30,15 +31,13 @@ class TestFileFixturePagedRestReader(RestPublicContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "file_fixture_paged_rest": {
-                "locator": str(_FIXTURE_DIR),
-                "pagination_style": "page",
-                "page_size": 2,
-                "rate_limit_pace": 100,
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(),
+            locator=str(_FIXTURE_DIR),
+            pagination_style="page",
+            page_size=2,
+            result_limit=100,
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

@@ -18,6 +18,7 @@ from open_kgo.feature_groups.kg.citation_rest.tests.kg_citation_rest_contract im
     CitationRestContractTestBase,
 )
 from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "reactome.json"
@@ -30,14 +31,13 @@ class TestFileFixtureCitationReader(CitationRestContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "file_fixture_citation": {
-                "locator": str(_FIXTURE),
-                "species_prefix": "HSA",
-                "dataset_version": "v90",
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(),
+            locator=str(_FIXTURE),
+            species_prefix="HSA",
+            dataset_version="v90",
+            result_limit=100,
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:
