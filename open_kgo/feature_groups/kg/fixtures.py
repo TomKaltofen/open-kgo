@@ -103,9 +103,12 @@ def copy_cached_rows(rows: Iterable[Any], limit: int) -> list[dict[str, Any]]:
     """
     out: list[dict[str, Any]] = []
     for row in rows:
-        out.append(copy_cached_row(row))
+        # Bound check before the append so a non-positive limit yields [] (the
+        # callers' result_limit arithmetic keeps it >= 1 today, but a shared
+        # primitive should not over-emit on the edge).
         if len(out) >= limit:
             break
+        out.append(copy_cached_row(row))
     return out
 
 

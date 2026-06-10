@@ -352,6 +352,11 @@ class KgConnectorReaderBase(ReadDB):
           ``PaginationMixin``); the delta is deliberately ignored because the
           flavor has no ``build_params`` to honor it, and passing
           ``family_params`` on such a family raises.
+        - Deltas are collected from the WHOLE MRO. A future family base that
+          subclasses another family base which already absorbed a mixin would
+          re-collect that mixin's delta and fail loudly with a
+          ``PropertyMappingCollision`` at import; such a chain needs explicit
+          composition instead of this opt-in.
         """
         for layer in ("PROPERTY_MAPPING", "PARAMS_MAPPING"):
             if layer in cls.__dict__:
