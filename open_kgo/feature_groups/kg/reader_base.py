@@ -81,6 +81,7 @@ from open_kgo.feature_groups.kg.errors import (
     PropertyMappingCollision,
 )
 from open_kgo.feature_groups.kg.spec import property_spec
+from open_kgo.feature_groups.kg.validation import parse_bounded_int
 
 
 @dataclass(frozen=True)
@@ -647,15 +648,13 @@ class KgConnectorReaderBase(ReadDB):
         caller set it. Bool is rejected explicitly: it is an ``int`` subclass
         in Python, but a row cap of ``True`` or ``False`` is almost always a
         caller mistake. Strings, floats, and negative integers fail likewise.
+        Delegates to ``parse_bounded_int`` with no default: the key is only
+        checked when present, and a present-but-``None`` value is rejected
+        like any other non-int.
         """
         if "result_limit" not in creds:
             return
-        value = creds["result_limit"]
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise InvalidCredentialShape(
-                f"{cls.CONNECTOR_ID}: result_limit must be a positive int (>= 1, bool not accepted), "
-                f"got {type(value).__name__} {value!r}."
-            )
+        parse_bounded_int(cls.CONNECTOR_ID, "result_limit", creds["result_limit"], min_value=1)
 
     @classmethod
     def _validate_mapping(

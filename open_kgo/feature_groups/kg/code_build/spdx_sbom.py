@@ -32,6 +32,7 @@ from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
 from open_kgo.feature_groups.kg.mixins import TraversalMixin
 from open_kgo.feature_groups.kg.spec import property_spec
+from open_kgo.feature_groups.kg.validation import parse_bounded_int
 
 
 def _build_dependency_maps(
@@ -64,28 +65,6 @@ def _build_dependency_maps(
         upstream[depender].append(dependency)
         downstream[dependency].append(depender)
     return dict(upstream), dict(downstream)
-
-
-def _parse_depth(connector_id: str, key: str, value: Any, default: int) -> int:
-    """Validate and return a non-negative-int depth, falling back to ``default`` when unset.
-
-    Inline counterpart of ``parse_page_size`` in ``mixins.py``: the depth keys
-    are ``strict_validation=False`` by family design (no closed enum), so
-    ``_validate_params`` never type-checks them; this concrete is the first to
-    honor them and must guard the values itself. ``None`` (absent) maps to
-    ``default``; otherwise the value must be a non-bool ``int >= 0`` (``0`` is
-    meaningful: it disables that direction). Floats, bools, and strings raise
-    ``InvalidCredentialShape`` so a typo surfaces a typed error rather than a
-    raw ``ValueError`` mid-load or a silently truncated walk.
-    """
-    if value is None:
-        return default
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise InvalidCredentialShape(
-            f"{connector_id}: {key} must be a non-negative int (bool not accepted), "
-            f"got {type(value).__name__} {value!r}."
-        )
-    return value
 
 
 def _walk_packages(
@@ -193,8 +172,16 @@ class SpdxSbomReader(CodeBuildReader):
             # (MissingRequiredParamsError); only an explicit "" reaches this guard.
             raise InvalidCredentialShape(f"{cls.CONNECTOR_ID}: 'start_spdx_id' must be a non-empty SPDXID.")
         direction = params.get("lineage_direction", "BOTH")
-        upstream_depth = _parse_depth(cls.CONNECTOR_ID, "upstream_depth", params.get("upstream_depth"), 1)
-        downstream_depth = _parse_depth(cls.CONNECTOR_ID, "downstream_depth", params.get("downstream_depth"), 0)
+        # The depth keys are strict_validation=False by family design (no closed
+        # enum), so _validate_params never type-checks them; this concrete is the
+        # first to honor them and must guard the values itself. 0 is meaningful:
+        # it disables that direction.
+        upstream_depth = parse_bounded_int(
+            cls.CONNECTOR_ID, "upstream_depth", params.get("upstream_depth"), min_value=0, default=1
+        )
+        downstream_depth = parse_bounded_int(
+            cls.CONNECTOR_ID, "downstream_depth", params.get("downstream_depth"), min_value=0, default=0
+        )
         result_limit = ctx.result_limit
 
         packages_index = {

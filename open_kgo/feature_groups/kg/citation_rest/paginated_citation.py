@@ -34,9 +34,9 @@ from open_kgo.feature_groups.kg.citation_rest.base import (
     CitationRestFeatureGroup,
     CitationRestReader,
 )
-from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
 from open_kgo.feature_groups.kg.mixins import cursor_page_slice
+from open_kgo.feature_groups.kg.validation import parse_bounded_int
 
 
 class PaginatedCitationReader(CitationRestReader):
@@ -69,12 +69,9 @@ class PaginatedCitationReader(CitationRestReader):
         # stable_id presence is enforced by REQUIRED_PARAMS inside build_params
         # (MissingRequiredParamsError), so no None re-check is needed here.
         stable_id = params["stable_id"]
-        depth = params.get("hierarchy_depth", 1)
-        if isinstance(depth, bool) or not isinstance(depth, int) or depth < 0:
-            raise InvalidCredentialShape(
-                f"{cls.CONNECTOR_ID}: hierarchy_depth must be a non-negative int (bool not accepted), "
-                f"got {type(depth).__name__} {depth!r}."
-            )
+        depth = parse_bounded_int(
+            cls.CONNECTOR_ID, "hierarchy_depth", params.get("hierarchy_depth"), min_value=0, default=1
+        )
         entity_type = params.get("entity_type")
 
         # BFS the citation graph from stable_id out to ``depth`` hops.

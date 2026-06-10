@@ -23,6 +23,7 @@ from typing import Any, ClassVar, Mapping, Sequence, TypeVar
 
 from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
 from open_kgo.feature_groups.kg.spec import property_spec
+from open_kgo.feature_groups.kg.validation import parse_bounded_int
 
 # Single source of truth for pagination styles: each value carries a family
 # tag and a docstring. The PaginationMixin spec dict and the cursor-family set
@@ -91,14 +92,7 @@ def parse_page_size(connector_id: str, value: Any, default: int) -> int:
     raise ``InvalidCredentialShape`` so a typo surfaces a typed error rather
     than a raw ``ValueError`` mid-load or a silently wrong slice.
     """
-    if value is None:
-        return default
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise InvalidCredentialShape(
-            f"{connector_id}: page_size must be a positive int (>= 1, bool not accepted), "
-            f"got {type(value).__name__} {value!r}."
-        )
-    return value
+    return parse_bounded_int(connector_id, "page_size", value, min_value=1, default=default)
 
 
 _ItemT = TypeVar("_ItemT")
