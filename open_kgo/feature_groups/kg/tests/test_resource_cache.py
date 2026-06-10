@@ -23,6 +23,7 @@ from open_kgo.feature_groups.kg.fixtures import (
     copy_cached_row,
     load_json_fixture,
     load_kuzu_database,
+    load_oxigraph_store,
     load_rdf_graph,
 )
 
@@ -96,6 +97,52 @@ def test_load_rdf_graph_returns_identical_object_across_calls(tmp_path: Path) ->
     second = load_rdf_graph("test", path)
     assert first is second
     assert isinstance(first, rdflib.Graph)
+
+
+def test_load_oxigraph_store_returns_identical_object_across_calls(tmp_path: Path) -> None:
+    """Two calls with the same locator return the same ``pyoxigraph.Store`` instance.
+
+    Mirrors ``test_load_rdf_graph_returns_identical_object_across_calls`` for the
+    oxigraph backend: identity (``is``), not equality, so a future refactor that
+    silently rebuilds the store per call surfaces here.
+    """
+    import pyoxigraph
+
+    path = tmp_path / "x.ttl"
+    path.write_text(
+        "@prefix ex: <http://example.org/> .\nex:a ex:b ex:c .\n",
+        encoding="utf-8",
+    )
+    first = load_oxigraph_store("test", path)
+    second = load_oxigraph_store("test", path)
+    assert first is second
+    assert isinstance(first, pyoxigraph.Store)
+
+
+def test_load_oxigraph_store_invalidates_on_mtime_change(tmp_path: Path) -> None:
+    """Modifying the underlying file evicts the cached store via mtime keying.
+
+    Mirrors ``test_load_json_fixture_invalidates_on_mtime_change`` for the
+    oxigraph backend: a rewrite plus mtime bump must yield a fresh store
+    that reflects the new file content.
+    """
+    path = tmp_path / "x.ttl"
+    path.write_text(
+        "@prefix ex: <http://example.org/> .\nex:a ex:b ex:c .\n",
+        encoding="utf-8",
+    )
+    first = load_oxigraph_store("test", path)
+    assert len(first) == 1
+    # Bump mtime explicitly so a same-second rewrite still rotates the key.
+    new_mtime_ns = path.stat().st_mtime_ns + 1_000_000_000
+    path.write_text(
+        "@prefix ex: <http://example.org/> .\nex:a ex:b ex:c .\nex:d ex:e ex:f .\n",
+        encoding="utf-8",
+    )
+    os.utime(path, ns=(new_mtime_ns, new_mtime_ns))
+    second = load_oxigraph_store("test", path)
+    assert first is not second
+    assert len(second) == 2
 
 
 def test_load_rdf_graph_rejects_remote_scheme() -> None:

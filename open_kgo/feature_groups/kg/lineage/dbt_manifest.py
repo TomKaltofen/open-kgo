@@ -67,10 +67,20 @@ class DbtManifestReader(LineageReader):
             # caller holds row["node"] (see ``_connect_from_slot``).
             rows.append({"urn": asset_urn, "node": copy_cached_row(nodes_index[asset_urn])})
 
+        # One EMITTED set shared across both directional walks: under BOTH, a
+        # node reachable in both directions (cycle through the start) must be
+        # emitted once and bill result_limit once. Each walk keeps its own
+        # local visited set, so an already-emitted overlap node is still
+        # expanded by the second walk and nodes beyond it are reached.
+        emitted: set[str] = {asset_urn}
         if direction in ("UPSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk_with_node(parent_map, nodes_index, asset_urn, upstream_depth, result_limit - len(rows)))
+            rows.extend(
+                _walk_with_node(parent_map, nodes_index, asset_urn, upstream_depth, result_limit - len(rows), emitted)
+            )
         if direction in ("DOWNSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk_with_node(child_map, nodes_index, asset_urn, downstream_depth, result_limit - len(rows)))
+            rows.extend(
+                _walk_with_node(child_map, nodes_index, asset_urn, downstream_depth, result_limit - len(rows), emitted)
+            )
 
         return rows
 
@@ -81,31 +91,49 @@ def _walk_with_node(
     start: str,
     depth: int,
     remaining: int,
+    emitted: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """BFS walk along edge_map; emit nodes_index[urn] entries (or {urn:...} stubs).
 
-    Aborts as soon as ``remaining`` rows have been emitted so result_limit
+    Aborts as soon as ``remaining`` NEW rows have been emitted so result_limit
     bounds the work walked, not just the output sliced. Without this guard a
     wide manifest pays full BFS cost for a tiny limit.
+
+    Traversal and emission are deduplicated separately. A local ``visited``
+    set (per walk) terminates cycles and dedups the frontier. ``emitted``,
+    when given, is caller-owned and mutated in place: ``load_data`` passes ONE
+    set (seeded with the start node) to both directional walks so a node that
+    is both upstream and downstream of the start (a cycle through the start)
+    is emitted once under ``lineage_direction=BOTH`` and bills
+    ``result_limit`` once. An already-emitted overlap node is still EXPANDED
+    by the second walk (it costs no budget), so nodes reachable in the second
+    direction only through it are not dropped. ``emitted=None`` builds a
+    fresh set seeded with ``start`` (single-direction semantics, used by
+    direct unit-test callers).
     """
     if depth <= 0 or remaining <= 0:
         return []
+    if emitted is None:
+        emitted = {start}
+    visited: set[str] = {start}
     out: list[dict[str, Any]] = []
-    seen: set[str] = {start}
     frontier: list[str] = [start]
     for _ in range(depth):
         next_frontier: list[str] = []
         for node in frontier:
             for nbr in edge_map.get(node, []):
-                if nbr in seen:
+                if nbr in visited:
                     continue
-                seen.add(nbr)
+                visited.add(nbr)
+                next_frontier.append(nbr)
+                if nbr in emitted:
+                    continue
+                emitted.add(nbr)
                 # ``nodes_index`` is a ref into the shared manifest cache;
                 # copy_cached_row keeps it read-only at the row level.
                 out.append({"urn": nbr, "node": copy_cached_row(nodes_index.get(nbr))})
                 if len(out) >= remaining:
                     return out
-                next_frontier.append(nbr)
         if not next_frontier:
             break
         frontier = next_frontier

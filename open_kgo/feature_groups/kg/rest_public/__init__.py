@@ -4,11 +4,23 @@ The locator is a base URL, ``dataset`` is null (one URL is the corpus). Family
 adds: ``entity_type``, ``dataset_version``, ``user_agent``, ``rate_limit_pace``.
 Inherits ``PaginationMixin`` (cursor / page / cursorMark / etc.).
 
-PROTOTYPE NOTE: the only concrete plugin is ``FileFixtureRestReader``, which
-walks ``page_*.json`` files on disk. ``pagination_style`` is strict-validated
-against the 7-value enum but the page walker hardcodes cursor-style
-termination on ``meta.next_cursor`` and does not switch on the enum value.
-``rate_limit_pace``, ``user_agent``, ``entity_type``, and ``dataset_version``
-are accepted at the property layer and never read at runtime — there is no
-real HTTP client to apply them to.
+PROTOTYPE NOTE: both concretes walk ``page_*.json`` files on disk.
+``FileFixtureRestReader`` narrows ``pagination_style`` to ``cursor`` and
+terminates on ``meta.next_cursor`` (dropping ``page_size``).
+``FileFixturePagedRestReader`` narrows it to ``page`` and *honors*
+``page_size``, terminating when a page returns fewer than ``page_size`` rows,
+so the termination half of the family's counter-pagination branch is
+exercised (there is no per-call page selector; every call concatenates from
+page 1 until termination). Because both narrowings exclude the family default
+``none``, ``pagination_style`` is in each concrete's ``REQUIRED_KEYS`` (and
+``page_size`` additionally on the paged concrete, whose termination threshold
+must match the fixture's authored page size): ``SUPPORTED_VALUES`` only
+validates keys present in the slot, so omission is closed by the required-key
+check, enforced structurally at class definition by the base's
+omission-bypass invariant. ``rate_limit_pace``,
+``user_agent``, and ``dataset_version`` remain accepted at the property layer
+and never read (there is no real HTTP client to apply them to). ``entity_type``
+is not a property-layer no-op: it is a per-call param that both shipped
+concretes strip from ``PARAMS_MAPPING`` and therefore reject per-call (via the
+``_STRIPPED_PARAMS`` hook).
 """

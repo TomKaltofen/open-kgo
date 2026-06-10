@@ -74,6 +74,13 @@ class SaasAuthzReader(EntityFilterPropertyMixin, PaginationMixin, ParamReader):
         context="SaasAuthzReader.PARAMS_MAPPING",
     )
 
+    # Honest surface (option 3, see base.py): SpiceDB/OpenFGA/OData knobs the
+    # in-process fakes ignore (plain dict ops, no versioning/consistency),
+    # reserved for a real authz backend.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset(
+        {"api_version", "consistency_token", "authorization_model_id"}
+    )
+
 
 class SaasAuthzFeatureGroup(KgConnectorFeatureGroupBase):
     READER_CLASS = None

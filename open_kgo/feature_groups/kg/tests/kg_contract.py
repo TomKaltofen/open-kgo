@@ -34,7 +34,12 @@ from open_kgo.feature_groups.kg.errors import (
     MissingRequiredKeysError,
     MissingRequiredParamsError,
 )
-from open_kgo.feature_groups.kg.tests._discovery import iter_strict_specs
+from open_kgo.feature_groups.kg.tests._discovery import (
+    effective_unconsumed_waivers,
+    iter_nonstrict_specs,
+    iter_strict_specs,
+    reader_string_literals,
+)
 from open_kgo.feature_groups.kg.tests._helpers import bogus_value_for_strict_spec
 
 
@@ -320,6 +325,36 @@ class KgConnectorContractBase(ABC):
                 f"waived via _WAIVED_ENUM_KEYS: {rendered}. Either pin SUPPORTED_VALUES[key] to the "
                 f"subset the runtime honors, or add the key to _WAIVED_ENUM_KEYS with a one-line waiver "
                 f"comment on the concrete class."
+            )
+
+    def test_no_unconsumed_advertised_keys(self) -> None:
+        """Every advertised non-strict credential/param key is consumed or waived.
+
+        Enforces the "Honest credential surface" rule (see base.py). Strict
+        enums are owned by ``test_strict_enum_honored_or_waived``; this test
+        owns the complementary non-strict keys. Each must either appear as an
+        exact string literal in a reader method across the kg-package MRO (read
+        at runtime) or be listed in ``_WAIVED_UNCONSUMED_KEYS`` (unioned across
+        the MRO). The literal check is a heuristic proxy for consumption (per
+        issue #22): every shipped reader reads its keys by literal, so it
+        reliably turns a silent surface lie into a red build.
+        """
+        cls = self.connector_reader_class()
+        consumed = reader_string_literals(cls)
+        waived = effective_unconsumed_waivers(cls)
+        lies: list[tuple[str, str]] = []
+        for key, _spec, layer_name in iter_nonstrict_specs(cls):
+            if key in consumed or key in waived:
+                continue
+            lies.append((layer_name, key))
+        if lies:
+            rendered = [f"{layer}.{key}" for layer, key in lies]
+            raise AssertionError(
+                f"{cls.__name__}: advertised non-strict key(s) never consumed at runtime and not "
+                f"waived: {rendered}. Either read the key in a reader method, strip it from the "
+                f"mapping (narrow_property_mapping / PARAMS narrowing), or add it to "
+                f"_WAIVED_UNCONSUMED_KEYS with a one-line waiver comment. See the 'Honest credential "
+                f"surface' section in base.py."
             )
 
     def test_stripped_params_rejected_at_per_call(self) -> None:

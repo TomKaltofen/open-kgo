@@ -55,7 +55,7 @@ Swap `rdflib_sparql` for any of the nine connector families â€” same `Feature` â
 
 ## KG connectors
 
-`open_kgo/feature_groups/kg/` ships a 9-family knowledge-graph connector taxonomy (`network_pg`, `rdf`, `embedded`, `rest_public`, `lineage`, `code_build`, `saas_authz`, `agent_memory`, `citation_rest`), with at least one concrete plugin per family running against in-memory libraries or local file fixtures. See `open_kgo/feature_groups/kg/README.md` for the family map.
+`open_kgo/feature_groups/kg/` ships a 9-family knowledge-graph connector taxonomy (`network_pg`, `rdf`, `embedded`, `rest_public`, `lineage`, `code_build`, `saas_authz`, `agent_memory`, `citation_rest`), with two concrete plugins per family running against in-memory libraries or local file fixtures. See `open_kgo/feature_groups/kg/README.md` for the family map.
 
 Install all KG extras with: `uv sync --extra kg-all`.
 

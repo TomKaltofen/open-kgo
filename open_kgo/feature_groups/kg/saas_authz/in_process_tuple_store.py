@@ -10,16 +10,22 @@ PROTOTYPE NOTE: this fake exercises the property *shape*. It does NOT provide
 real consistency-token semantics, model-id versioning, or namespaced check
 evaluation. For real semantics, use the OpenFGA / SpiceDB Python clients.
 
-Pinned fixture:
+Pinned fixture (intentional, issue #19):
+
+The pinning described below is a recorded design decision, not an open follow-up.
+The configurable-source concrete in this family is the sibling
+``paginated_tuple_store`` (it keeps the ``locator`` slot); this fake deliberately
+trades configurability for a closed, matcher-safe ``tenant`` enum. Rationale:
 
 The connector is pinned to a single canonical fixture (``_FIXTURE_PATH``); the
 family-level ``locator`` slot is dropped from ``PROPERTY_MAPPING`` and
 ``REQUIRED_KEYS`` because accepting a configurable locator on a connector
 whose tenant enum is closed at class load would create a silent scope
 mismatch (user-supplied fixtures with tenants outside ``allowed_values``
-would be rejected at the matcher with no diagnostic). This mirrors the
-``page_size`` drop on ``FileFixtureRestReader``: a credential slot that the
-concrete cannot honor is a surface lie, so we drop it.
+would be rejected at the matcher with no diagnostic). This is option 1 of the
+"Honest credential surface" rule in base.py, mirroring the ``page_size`` drop
+on ``FileFixtureRestReader``: a credential slot that the concrete cannot honor
+is a surface lie, so we drop it.
 
 Tenant validation has two layers:
 
@@ -90,6 +96,12 @@ def _validate_tuples(connector_id: str, locator: str, tenant: str, raw: Any) -> 
 class InProcessTupleStoreReader(SaasAuthzReader):
     CONNECTOR_ID: ClassVar[str] = "in_process_tuple_store"
     REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("tenant",),)
+    # Declared baked source (issue #19, enforced per issue #21): the fixture
+    # is pinned via _FIXTURE_PATH and 'locator' is narrowed out below, so this
+    # connector has no source slot. See the "Source-slot convention" in
+    # kg/base.py; _validate_source_slot rejects None while 'locator' is still
+    # advertised, tying this declaration to the narrowing.
+    SOURCE_SLOT: ClassVar[str | None] = None
     # Strict-enum narrowings:
     #   - pagination_style: load_data does not paginate; only "none" honored.
     #   - tenant: the spec-override above already pins allowed_values to
@@ -105,6 +117,11 @@ class InProcessTupleStoreReader(SaasAuthzReader):
     # values, so narrowing here would lock the family contract to the fake's
     # single honored value and force future concretes to widen.
     _WAIVED_ENUM_KEYS: ClassVar[frozenset[str]] = frozenset({"consistency_mode"})
+    # Honest surface (option 3, see base.py): this fake returns the whole list
+    # in one shot and filters only by entity_type/relationship_type, so
+    # ``page_size`` and ``expand_paths`` are unused (the paginated sibling reads
+    # page_size). Unioned with the family-base waivers across the MRO.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"page_size", "expand_paths"})
 
     # The canonical fixture this concrete serves. Pinned at class load so the
     # closed ``allowed_values`` enum on ``tenant`` (below) is a truthful

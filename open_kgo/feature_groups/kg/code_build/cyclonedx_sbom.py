@@ -6,9 +6,10 @@ returns the ``components`` list as-is (sliced by ``result_limit``); the
 ``dependencies`` graph is not walked, so all family-base traversal /
 entity-filter per-call keys (``lineage_direction``, ``upstream_depth``,
 ``downstream_depth``, ``entity_type``, ``relationship_type``,
-``expand_paths``) are dropped from this plugin's ``PARAMS_MAPPING``. Setting
-any of them in ``feature.options`` is rejected per-call via the
-``_STRIPPED_PARAMS`` hook on ``ParamReader``.
+``expand_paths``) are dropped from this plugin's ``PARAMS_MAPPING`` (option 1
+of the "Honest credential surface" rule in base.py). Setting any of them in
+``feature.options`` is rejected per-call via the ``_STRIPPED_PARAMS`` hook on
+``ParamReader``.
 """
 
 from __future__ import annotations

@@ -11,6 +11,47 @@ Concrete plugins set ``CONNECTOR_ID`` and implement ``connect``,
 walks the ``ReadDB`` subclass tree and finds the right reader by calling
 ``is_valid_credentials`` on each candidate, which the universal base
 implements once against ``CONNECTOR_ID``.
+
+Honest credential surface
+-------------------------
+The rule, enforced rather than conventional: a connector must not advertise a
+slot (``PROPERTY_MAPPING``) or param (``PARAMS_MAPPING``) it silently ignores.
+Advertising a key a reader never reads lets a caller set it, see no error, and
+get the wrong behavior. A connector reconciles its surface one of three ways:
+
+1. **Drop it** via ``narrow_property_mapping`` (slot) or by narrowing
+   ``PARAMS_MAPPING`` (param; dropped keys land in ``_STRIPPED_PARAMS`` and are
+   rejected at call time).
+2. **Narrow/waive an enum**: pin ``SUPPORTED_VALUES[key]`` to the honored
+   subset, or list it in ``_WAIVED_ENUM_KEYS`` for forward-compat. Enforced by
+   ``test_strict_enum_honored_or_waived``.
+3. **Waive a non-enum key** kept for a future concrete: list it in
+   ``_WAIVED_UNCONSUMED_KEYS`` with a one-line reason. Enforced by
+   ``test_no_unconsumed_advertised_keys``, which treats an exact string-literal
+   reference in a reader method as proof of consumption.
+
+The two tests partition the advertised surface (strict enums vs. the rest), so
+every key has an explicit disposition and a new connector that forgets to trim
+goes red instead of misleading callers.
+
+Source-slot convention
+----------------------
+A connector identifies "where is the data" via the credential key named in
+``SOURCE_SLOT`` (default ``"locator"``). A family or concrete that renames the
+address slot declares the new name (``SOURCE_SLOT = "manifest_path"`` on
+``CodeBuildReader``, issue #18), and one that bakes its source into the reader
+declares ``SOURCE_SLOT = None`` (``InProcessTupleStoreReader``, issue #19).
+The declaration is enforced two ways (issue #21): ``_validate_source_slot``
+rejects an undeclared rename or drop at class-definition time, and the
+cross-family catalog test reads the declaration as data and fails on any
+spelling outside its known vocabulary
+(``test_source_slot_declaration_matches_catalog`` in
+``tests/test_kg_families_e2e.py``), so a fourth spelling cannot creep in
+silently. The guarantee is scoped: it stops a silent drop, rename, or
+unconsumed-waiver of the *declared* slot (a declared ``SOURCE_SLOT`` may not
+appear in ``_WAIVED_UNCONSUMED_KEYS``); it cannot decide that some *other*
+advertised key has become the de-facto address, which stays a review judgement
+the asymmetry catalog makes visible.
 """
 
 from __future__ import annotations
@@ -94,7 +135,8 @@ def narrow_property_mapping(source: dict[str, Any], *exclude: str) -> dict[str, 
 
     Concrete plugins drop family-level keys they do not honor (advertising
     a key the reader ignores would be a surface lie that the closed-world
-    credential check then rejects). Several concretes spelled this as an
+    credential check then rejects). This is option 1 of the "Honest credential
+    surface" rule in this module's docstring. Several concretes spelled this as an
     inline ``{k: v for k, v in Parent.PROPERTY_MAPPING.items() if k not in {...}}``
     comprehension; centralising it names the intent and keeps the narrowing
     rule in one place. Keys in ``exclude`` that are absent from ``source``
@@ -203,6 +245,16 @@ class KgConnectorReaderBase(ReadDB):
     CONNECTOR_ID: ClassVar[str] = ""
     REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = ()
 
+    # The credential key a caller sets to point this connector at its data
+    # (the "Source-slot convention" in this module's docstring). Default is
+    # the shared ``locator``. A family/concrete that renames the address slot
+    # declares the new name here; one that bakes the source into the reader
+    # declares ``None``. ``_validate_source_slot`` enforces at class-definition
+    # time that the declaration matches ``PROPERTY_MAPPING``, so a rename or
+    # drop without a matching declaration fails the import instead of becoming
+    # a silent fourth spelling.
+    SOURCE_SLOT: ClassVar[str | None] = "locator"
+
     # Per-property "requires" rules resolved against sibling values. Each entry
     # is ``(prop_name, prop_value, OR-groups)``: when ``creds.get(prop_name) ==
     # prop_value``, the OR-groups are enforced just like ``REQUIRED_KEYS`` (each
@@ -221,8 +273,12 @@ class KgConnectorReaderBase(ReadDB):
     # Used by ``_validate_shape`` and ``_validate_params`` (the latter via
     # ``ParamReader``) so the same hook covers credential and per-call surfaces.
     # Invariant: each ``SUPPORTED_VALUES[key]`` is a non-empty subset of the
-    # spec's allowed set, and the key has ``strict_validation=True``. Enforced
-    # at class-definition time by ``__init_subclass__``.
+    # spec's allowed set, and the key has ``strict_validation=True``. For
+    # property-layer (credential slot) keys, if the narrowed set excludes the
+    # spec's non-None default, the key must also appear in ``REQUIRED_KEYS``
+    # (omission would otherwise bypass the narrowing; see
+    # ``_validate_supported_values_invariant``). Enforced at class-definition
+    # time by ``__init_subclass__``.
     SUPPORTED_VALUES: ClassVar[Mapping[str, frozenset[Any]]] = {}
 
     # Strict-validation enum keys this concrete deliberately accepts at the
@@ -232,18 +288,29 @@ class KgConnectorReaderBase(ReadDB):
     # ``SUPPORTED_VALUES``; use a waiver only when narrowing would lock out a
     # forward-compatible value the family base legitimately advertises (e.g.
     # ``read_consistency`` is a Kuzu no-op today but real network_pg backends
-    # will honor it). The ``test_strict_enum_honored_or_waived`` contract test
-    # rejects any strict-validation enum that is neither in
+    # will honor it). This is option 2 of the "Honest credential surface" rule
+    # in this module's docstring. The ``test_strict_enum_honored_or_waived``
+    # contract test rejects any strict-validation enum that is neither in
     # ``SUPPORTED_VALUES`` nor in ``_WAIVED_ENUM_KEYS``; each waived key carries
     # a one-line comment on the concrete class explaining the waiver. The
     # contract test enforces membership only; the comment is review-time
     # discipline.
     _WAIVED_ENUM_KEYS: ClassVar[frozenset[str]] = frozenset()
 
+    # Option 3 of the "Honest credential surface" rule (module docstring): the
+    # non-enum counterpart to ``_WAIVED_ENUM_KEYS``. Non-strict keys advertised
+    # but not consumed at runtime, kept as forward-compat surface; each needs a
+    # one-line reason. ``test_no_unconsumed_advertised_keys`` enforces it and
+    # unions this set across the MRO (see ``effective_unconsumed_waivers``), so a
+    # family base may waive family-wide keys and a concrete add its own.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset()
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         cls._validate_mapping_spec_shapes()
         cls._validate_supported_values_invariant()
+        cls._validate_unconsumed_waivers()
+        cls._validate_source_slot()
 
     @classmethod
     def _validate_mapping_spec_shapes(cls) -> None:
@@ -280,6 +347,16 @@ class KgConnectorReaderBase(ReadDB):
           key is meaningless: the family already accepts anything).
         - The narrowed frozenset must be non-empty and a subset of the spec's
           allowed set.
+        - Omission-bypass guard (property-layer keys only): when the narrowed
+          set excludes the spec's non-None default, the key must appear in
+          some ``REQUIRED_KEYS`` group. ``_validate_mapping`` only checks keys
+          PRESENT in the slot, so without the requirement an omitted key would
+          validate and the reader would run under a defaulted value it does
+          not honor (e.g. serve a cursor-paginated page 1, then reject its own
+          continuation token because the cross-layer guard defaults the style
+          to ``"none"``). Per-call params are out of scope: there is no
+          slot-omission concept on that layer (``build_params`` simply leaves
+          absent keys out of the params dict).
         """
         if not cls.SUPPORTED_VALUES:
             return
@@ -308,6 +385,101 @@ class KgConnectorReaderBase(ReadDB):
                     f"{cls.__name__}.SUPPORTED_VALUES[{key!r}]={sorted(narrowed)} is not a "
                     f"subset of the family-allowed set {sorted(allowed)}."
                 )
+            default = spec.get(DefaultOptionKeys.default)
+            if (
+                key in cls.PROPERTY_MAPPING
+                and default is not None
+                and default not in narrowed
+                and not any(key in group for group in cls.REQUIRED_KEYS)
+            ):
+                raise ValueError(
+                    f"{cls.__name__}.SUPPORTED_VALUES[{key!r}]={sorted(narrowed)} excludes the "
+                    f"spec default {default!r} but {key!r} is missing from REQUIRED_KEYS. "
+                    f"_validate_mapping only checks keys present in the credential slot, so an "
+                    f"omitted {key!r} would bypass the narrowing and the reader would run under "
+                    f"a defaulted value it does not honor. Add ({key!r},) to REQUIRED_KEYS, or "
+                    f"widen the narrowed set to include the default."
+                )
+
+    @classmethod
+    def _validate_unconsumed_waivers(cls) -> None:
+        """Reject locally-declared ``_WAIVED_UNCONSUMED_KEYS`` entries that name no advertised key.
+
+        Catches a typo or stale waiver (key later stripped) that would silently
+        no-op. Only the class's own declaration (``cls.__dict__``) is checked
+        against the resolved mappings: an inherited waiver naming a key a
+        subclass strips is inert (the contract test iterates advertised keys
+        only), not an error.
+        """
+        local = cls.__dict__.get("_WAIVED_UNCONSUMED_KEYS")
+        if not local:
+            return
+        advertised = set(cls.PROPERTY_MAPPING)
+        params_mapping: Mapping[str, Any] = getattr(cls, "PARAMS_MAPPING", {})
+        advertised |= set(params_mapping)
+        unknown = set(local) - advertised
+        if unknown:
+            raise ValueError(
+                f"{cls.__name__}._WAIVED_UNCONSUMED_KEYS names key(s) not present in "
+                f"PROPERTY_MAPPING or PARAMS_MAPPING: {sorted(unknown)}. Remove the stale "
+                f"waiver, or fix the key name."
+            )
+
+    @classmethod
+    def _validate_source_slot(cls) -> None:
+        """Reject a ``SOURCE_SLOT`` declaration that contradicts ``PROPERTY_MAPPING`` at class-definition time.
+
+        The enforcement half of the "Source-slot convention" (module
+        docstring). Two contradictions are possible and both are rejected:
+
+        - ``SOURCE_SLOT`` names a key the class does not advertise. This is
+          either a typo, or the class renamed/dropped the address slot
+          (``narrow_property_mapping(..., "locator")``) while inheriting the
+          default declaration. Both mean the declaration lies about how a
+          caller points the connector at its data.
+        - ``SOURCE_SLOT is None`` (source baked into the reader) while
+          ``locator`` is still advertised. A baked connector accepting a
+          ``locator`` credential would be a surface lie (the honest-credential
+          rule), so the declaration and the mapping must drop it together.
+
+        A declared slot listed in ``_WAIVED_UNCONSUMED_KEYS`` (anywhere in the
+        MRO) is also rejected: waiving the source slot as unconsumed means the
+        reader does not actually read it, so the declaration would lie while
+        some other key serves as the de-facto address. That is the one
+        concrete way a fourth spelling could otherwise creep in behind a green
+        gate. A non-``None``, non-``str`` value is a type error caught here
+        rather than later in a confusing membership check.
+        """
+        slot_name = cls.SOURCE_SLOT
+        if slot_name is None:
+            if "locator" in cls.PROPERTY_MAPPING:
+                raise ValueError(
+                    f"{cls.__name__}.SOURCE_SLOT is None (source baked into the reader) but 'locator' "
+                    f"is still advertised in PROPERTY_MAPPING. Drop 'locator' via "
+                    f"narrow_property_mapping, or declare SOURCE_SLOT = 'locator'."
+                )
+            return
+        if not isinstance(slot_name, str):
+            raise ValueError(
+                f"{cls.__name__}.SOURCE_SLOT must be a str credential key or None, "
+                f"got {type(slot_name).__name__} ({slot_name!r})."
+            )
+        if slot_name not in cls.PROPERTY_MAPPING:
+            raise ValueError(
+                f"{cls.__name__}.SOURCE_SLOT={slot_name!r} is not a key in PROPERTY_MAPPING. "
+                f"Every connector must declare how a caller points it at its data: keep the "
+                f"declared slot in PROPERTY_MAPPING, override SOURCE_SLOT to the renamed key, "
+                f"or declare SOURCE_SLOT = None if the source is baked into the reader."
+            )
+        waived = {key for klass in cls.__mro__ for key in klass.__dict__.get("_WAIVED_UNCONSUMED_KEYS", ())}
+        if slot_name in waived:
+            raise ValueError(
+                f"{cls.__name__}.SOURCE_SLOT={slot_name!r} is waived as unconsumed in "
+                f"_WAIVED_UNCONSUMED_KEYS: the reader does not read its own declared source slot, "
+                f"so the declaration lies about how a caller points it at its data. Override "
+                f"SOURCE_SLOT to the key actually consumed, or declare SOURCE_SLOT = None if the "
+                f"source is baked into the reader."
+            )
 
     def load(self, features: FeatureSet) -> Any:
         """Reject multi-feature FeatureSets, then return native rows from ``load_data``.
@@ -940,8 +1112,11 @@ class ParamReader(KgConnectorReaderBase):
     def _reject_stripped_params(cls, features: FeatureSet) -> None:
         """Raise if any family-declared but concrete-stripped param is set on the feature.
 
-        Scope is intentionally narrow: only checks ``feature.options.context``
-        (where per-call params live), not ``feature.options.group`` (mloda's
+        This is the per-call enforcement of option 1 of the "Honest credential
+        surface" rule (see this module's docstring): a param the concrete
+        dropped from ``PARAMS_MAPPING`` must not be silently accepted. Scope is
+        intentionally narrow: only checks ``feature.options.context`` (where
+        per-call params live), not ``feature.options.group`` (mloda's
         feature-grouping concept, out of scope for the per-call surface lie
         check). Unrelated keys in ``feature.options.context`` pass through;
         only family-declared keys this concrete dropped count as surface lies.

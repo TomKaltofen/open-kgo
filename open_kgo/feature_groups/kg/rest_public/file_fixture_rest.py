@@ -9,13 +9,16 @@ containing ``page_<N>.json`` files; each file looks like an OpenAlex page:
 The reader walks pages until ``next_cursor`` is null or ``result_limit`` is
 reached.
 
-Surface narrowing:
+Surface narrowing (the "Honest credential surface" rule in base.py):
 
-- ``pagination_style`` is narrowed via ``SUPPORTED_VALUES`` to ``cursor`` only;
-  any other value is rejected at ``is_valid_credentials`` time.
-- ``page_size`` is dropped from ``PROPERTY_MAPPING``; the fixture walker
-  reads whole pages, so a credential setting it would be a surface lie. The
-  closed-world credential check rejects it.
+- ``pagination_style`` is narrowed via ``SUPPORTED_VALUES`` to ``cursor`` only
+  AND listed in ``REQUIRED_KEYS``: any other value is rejected at
+  ``is_valid_credentials`` time, and omission is rejected too (the narrowing
+  only validates keys present in the slot, so without the requirement an
+  omitted key would run the cursor walk under the family default ``none``).
+- ``page_size`` is dropped from ``PROPERTY_MAPPING`` (option 1 of that rule);
+  the fixture walker reads whole pages, so a credential setting it would be a
+  surface lie. The closed-world credential check rejects it.
 - ``cursor_token`` and ``entity_type`` are dropped from ``PARAMS_MAPPING``;
   setting either in ``feature.options`` is rejected per-call via the
   ``_STRIPPED_PARAMS`` hook on ``ParamReader``.
@@ -45,7 +48,12 @@ def _page_index(page_file: Path) -> int:
 
 class FileFixtureRestReader(RestPublicReader):
     CONNECTOR_ID: ClassVar[str] = "file_fixture_rest"
-    REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("locator",),)
+    # pagination_style is REQUIRED (not just narrowed): the family default is
+    # "none", which this reader does not honor, and SUPPORTED_VALUES only
+    # validates keys present in the slot. An omitted pagination_style would
+    # otherwise pass is_valid_credentials and silently run the cursor walk
+    # under a defaulted "none" label.
+    REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("locator",), ("pagination_style",))
 
     PROPERTY_MAPPING: ClassVar[dict[str, Any]] = narrow_property_mapping(RestPublicReader.PROPERTY_MAPPING, "page_size")
     PARAMS_MAPPING: ClassVar[dict[str, Any]] = {}

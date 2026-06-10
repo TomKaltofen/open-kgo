@@ -2,8 +2,8 @@
 
 Hidden-KG family with bi-temporal semantics. Required-with-at-least-one
 ``memory_scope_*`` family of properties; ``valid_at_range`` /
-``invalid_at_range`` / ``reference_time`` for bi-temporal queries; lexical or
-hybrid retrieval mode.
+``invalid_at_range`` / ``reference_time`` for bi-temporal queries; lexical and
+graph retrieval modes are implemented (vector / hybrid remain unimplemented).
 
 PROTOTYPE NOTE: ``NetworkxMemoryReader`` loads its in-process substrate from
 a JSON fixture pointed to by the ``locator`` credential slot
@@ -18,7 +18,16 @@ live on the family base for future concrete readers (Mem0, Zep+Graphiti,
 Letta) that own their own per-tenant stores.
 
 PROTOTYPE NOTE: ``retrieval_mode`` is strict-validated against
-``{lexical, vector, hybrid, graph}`` but only ``lexical`` is implemented;
-``vector``/``hybrid``/``graph`` raise ``NotImplementedError`` at
-``load_data`` time (see ``networkx_memory.py``).
+``{lexical, vector, hybrid, graph}``. ``NetworkxMemoryReader`` narrows it to
+``lexical`` (string-match over node labels); ``GraphWalkMemoryReader``
+narrows it to ``graph`` (BFS from a seed node id given as ``query_text``).
+``vector`` / ``hybrid`` remain unimplemented and are rejected at
+``is_valid_credentials`` time via ``SUPPORTED_VALUES`` on each concrete.
+``SUPPORTED_VALUES`` only validates keys present in the slot, and the family
+default is ``lexical``, so ``GraphWalkMemoryReader`` additionally lists
+``retrieval_mode`` in ``REQUIRED_KEYS``: omitting the key (which would
+silently default to the un-honored ``lexical``) is rejected at
+``is_valid_credentials`` time as well. Together the two layers ensure neither
+reader lies about what it honors (``NetworkxMemoryReader`` honors the family
+default, so omission is safe there and the key stays optional).
 """

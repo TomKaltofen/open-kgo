@@ -36,6 +36,11 @@ class LineageReader(ParamReader):
 
     REQUIRED_PARAMS: ClassVar[tuple[tuple[str, ...], ...]] = (("asset_urn",),)
 
+    # Honest surface (option 3, see base.py): entity/relation filter keys (from
+    # EntityFilterParamMixin) the concretes don't apply (they walk by
+    # direction/depth from asset_urn), reserved for a traversal-scoping concrete.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"entity_type", "relationship_type", "expand_paths"})
+
 
 class LineageFeatureGroup(KgConnectorFeatureGroupBase):
     READER_CLASS = None

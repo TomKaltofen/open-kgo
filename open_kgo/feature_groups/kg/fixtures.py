@@ -8,7 +8,7 @@ the same source artifact. This module centralises the
 parse-once / share-many pipeline so every file-backed concrete routes
 through one cache and the connector-lifecycle contract stays consistent.
 
-Three loaders are provided:
+Four loaders are provided:
 
 - ``load_json_fixture(connector_id, locator)`` — open + ``json.load`` + dict
   shape check, memoised by ``(absolute path, mtime_ns)``. Used by the JSON
@@ -21,6 +21,12 @@ Three loaders are provided:
   default Memory store's ``close()`` is a no-op, so the shared graph
   survives the contract test that closes ``connect()``'s return value
   (verified empirically against rdflib 7.x).
+- ``load_oxigraph_store(connector_id, locator)`` — parse the same RDF
+  serialisations into an in-memory ``pyoxigraph.Store``, memoised by
+  ``(absolute path, mtime_ns)``. The oxigraph sibling of ``load_rdf_graph``;
+  the pyoxigraph import is deferred to call time so the module imports
+  without the ``kg-rdf`` extra. The returned store is shared across calls;
+  callers run read-only SPARQL against it and MUST NOT mutate it.
 - ``load_kuzu_database(connector_id, locator)`` — open a ``kuzu.Database``
   directory, memoised by ``absolute path`` only. Mtime keying does NOT
   apply: Kuzu mutates the database directory as it runs its own queries,
@@ -215,6 +221,86 @@ def _read_rdf_graph_cached(abs_path: str, mtime_ns: int) -> rdflib.Graph:
     except (rdflib.exceptions.Error, SyntaxError, SAXException, ValueError, UnicodeDecodeError) as exc:
         raise _FixtureLoadProblem(f"locator is not parseable as RDF: {exc}") from exc
     return graph
+
+
+_OXIGRAPH_FORMAT_BY_SUFFIX: dict[str, str] = {
+    ".ttl": "TURTLE",
+    ".nt": "N_TRIPLES",
+    ".n3": "N3",
+    ".trig": "TRIG",
+    ".nq": "N_QUADS",
+    ".rdf": "RDF_XML",
+    ".xml": "RDF_XML",
+    ".jsonld": "JSON_LD",
+}
+
+
+def load_oxigraph_store(connector_id: str, locator: Any) -> Any:
+    """Parse an RDF file into an in-memory ``pyoxigraph.Store``; memoised by ``(path, mtime_ns)``.
+
+    The oxigraph sibling of ``load_rdf_graph``: a real Turtle file is
+    1-100MB and oxigraph's parse pass is the expensive step, so a
+    100-feature ``mloda.run_all`` pays one parse instead of one hundred.
+    Returns ``Any`` to keep the pyoxigraph dependency optional at import
+    time (the import is deferred to call time, mirroring
+    ``load_kuzu_database``), so test environments without the ``kg-rdf``
+    extra can still import this module. The returned store is shared
+    across calls; callers run read-only SPARQL queries against it and MUST
+    NOT mutate it.
+    """
+    path = _validate_local_locator(connector_id, locator)
+    locator_str = str(locator)
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except OSError as exc:
+        raise FixtureLoadError(connector_id, locator_str, f"cannot stat locator path: {exc}") from exc
+    abs_path = str(path.resolve())
+    try:
+        return _read_oxigraph_store_cached(abs_path, mtime_ns)
+    except _FixtureLoadProblem as exc:
+        raise FixtureLoadError(connector_id, abs_path, exc.reason) from exc.__cause__
+
+
+@lru_cache(maxsize=64)
+def _read_oxigraph_store_cached(abs_path: str, mtime_ns: int) -> Any:
+    """Load ``abs_path`` into a ``pyoxigraph.Store``; memoised by ``(path, mtime_ns)``.
+
+    The RDF serialisation format is selected from the file extension
+    (defaulting to Turtle) since oxigraph's loader needs it explicitly,
+    unlike rdflib's content auto-detection. A suffix outside the known map
+    keeps the documented Turtle default, but the parse-failure message then
+    names the assumed format and the unknown suffix so a misleading "not
+    parseable as RDF" on e.g. a ``.owl`` file is self-explaining. The file
+    object is passed to ``Store.load`` directly (pyoxigraph 0.5.x accepts
+    binary I/O objects) so the 1-100MB artifacts the module docstring sizes
+    are streamed rather than buffered via ``f.read()``. pyoxigraph raises
+    the builtin ``SyntaxError`` on malformed RDF (verified against
+    pyoxigraph 0.5.x); ``ValueError`` / ``UnicodeDecodeError`` cover bad
+    bytes. The pyoxigraph import is deferred so the module imports without
+    the ``kg-rdf`` extra.
+    """
+    import pyoxigraph
+
+    suffix = Path(abs_path).suffix.lower()
+    fmt_name = _OXIGRAPH_FORMAT_BY_SUFFIX.get(suffix)
+    if fmt_name is None:
+        fmt_name = "TURTLE"
+        format_note = (
+            f"parsed as TURTLE based on suffix {suffix!r} which is not in the known suffix map "
+            f"{sorted(_OXIGRAPH_FORMAT_BY_SUFFIX)}"
+        )
+    else:
+        format_note = f"parsed as {fmt_name} based on suffix {suffix!r}"
+    rdf_format = getattr(pyoxigraph.RdfFormat, fmt_name)
+    store = pyoxigraph.Store()
+    try:
+        with open(abs_path, "rb") as f:
+            store.load(f, format=rdf_format)
+    except OSError as exc:
+        raise _FixtureLoadProblem(f"cannot open RDF locator file: {exc}") from exc
+    except (SyntaxError, ValueError, UnicodeDecodeError) as exc:
+        raise _FixtureLoadProblem(f"locator is not parseable as RDF ({format_note}): {exc}") from exc
+    return store
 
 
 def load_kuzu_database(connector_id: str, locator: Any) -> Any:

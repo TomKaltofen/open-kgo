@@ -55,6 +55,11 @@ class NetworkPropertyGraphReader(QueryReader):
         context="NetworkPropertyGraphReader",
     )
 
+    # Honest surface (option 3, see base.py): ``dataset`` names a database on a
+    # networked endpoint; both concretes run over a single in-memory/embedded
+    # graph with no such concept. Reserved for a networked concrete (Neo4j).
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"dataset"})
+
 
 class NetworkPropertyGraphFeatureGroup(KgConnectorFeatureGroupBase):
     READER_CLASS = None
