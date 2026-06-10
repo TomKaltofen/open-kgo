@@ -21,10 +21,9 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, ClassVar, Mapping
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
-from open_kgo.feature_groups.kg.base import compose_property_mapping
+from open_kgo.feature_groups.kg.base import LoadContext, compose_property_mapping
 from open_kgo.feature_groups.kg.code_build.base import (
     CodeBuildFeatureGroup,
     CodeBuildReader,
@@ -32,6 +31,7 @@ from open_kgo.feature_groups.kg.code_build.base import (
 from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
 from open_kgo.feature_groups.kg.mixins import TraversalMixin
+from open_kgo.feature_groups.kg.spec import property_spec
 
 
 def _build_dependency_maps(
@@ -157,12 +157,9 @@ class SpdxSbomReader(CodeBuildReader):
     PARAMS_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
         TraversalMixin.PARAMS_MAPPING_DELTA,
         {
-            "start_spdx_id": {
-                "explanation": "SPDXID of the package to start the dependency walk from.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
+            "start_spdx_id": property_spec(
+                "SPDXID of the package to start the dependency walk from.",
+            ),
         },
         context="SpdxSbomReader.PARAMS_MAPPING",
     )
@@ -186,9 +183,8 @@ class SpdxSbomReader(CodeBuildReader):
         return load_json_fixture(cls.CONNECTOR_ID, manifest_path)
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        sbom = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        sbom = connection
         params = cls.build_params(features, ctx.slot)
 
         start = params.get("start_spdx_id")

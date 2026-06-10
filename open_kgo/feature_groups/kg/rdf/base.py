@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
-
 from open_kgo.feature_groups.kg.base import (
     KgConnectorFeatureGroupBase,
     QueryReader,
     compose_property_mapping,
 )
 from open_kgo.feature_groups.kg.mixins import InferenceMixin
+from open_kgo.feature_groups.kg.spec import property_spec
 
 
 _RESULT_FORMATS: dict[str, str] = {
@@ -37,31 +36,23 @@ class RdfSparqlReader(InferenceMixin, QueryReader):
         QueryReader.PROPERTY_MAPPING,
         InferenceMixin.PROPERTY_MAPPING_DELTA,
         {
-            "default_graph_uris": {
-                "explanation": "List of named graph URIs to merge into the default graph (FROM clauses).",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: (),
-            },
-            "named_graph_uris": {
-                "explanation": "List of named graphs available via FROM NAMED.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: (),
-            },
-            "update_endpoint": {
-                "explanation": "Optional separate URL for SPARQL UPDATE; null means same as locator.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "result_format": {
-                "explanation": "MIME type the SPARQL endpoint should return results in.",
-                "allowed_values": _RESULT_FORMATS,
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: True,
-                DefaultOptionKeys.default: "application/sparql-results+json",
-            },
+            "default_graph_uris": property_spec(
+                "List of named graph URIs to merge into the default graph (FROM clauses).",
+                default=(),
+            ),
+            "named_graph_uris": property_spec(
+                "List of named graphs available via FROM NAMED.",
+                default=(),
+            ),
+            "update_endpoint": property_spec(
+                "Optional separate URL for SPARQL UPDATE; null means same as locator.",
+            ),
+            "result_format": property_spec(
+                "MIME type the SPARQL endpoint should return results in.",
+                strict=True,
+                allowed_values=_RESULT_FORMATS,
+                default="application/sparql-results+json",
+            ),
         },
         context="RdfSparqlReader",
     )

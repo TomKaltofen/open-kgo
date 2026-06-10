@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
-
 from open_kgo.feature_groups.kg.base import (
     KgConnectorFeatureGroupBase,
     QueryReader,
     compose_property_mapping,
 )
+from open_kgo.feature_groups.kg.spec import property_spec
 
 
 _READ_CONSISTENCY: dict[str, str] = {
@@ -31,26 +30,21 @@ class NetworkPropertyGraphReader(QueryReader):
     PROPERTY_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
         QueryReader.PROPERTY_MAPPING,
         {
-            "dataset": {
-                "explanation": "Database / graph / space name on the endpoint.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "read_consistency": {
-                "explanation": "Read consistency level the connector should request.",
-                "allowed_values": _READ_CONSISTENCY,
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: True,
-                DefaultOptionKeys.default: "read",
-            },
-            "transaction_mode": {
-                "explanation": "Transaction handling mode used by the engine.",
-                "allowed_values": _TRANSACTION_MODE,
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: True,
-                DefaultOptionKeys.default: "auto",
-            },
+            "dataset": property_spec(
+                "Database / graph / space name on the endpoint.",
+            ),
+            "read_consistency": property_spec(
+                "Read consistency level the connector should request.",
+                strict=True,
+                allowed_values=_READ_CONSISTENCY,
+                default="read",
+            ),
+            "transaction_mode": property_spec(
+                "Transaction handling mode used by the engine.",
+                strict=True,
+                allowed_values=_TRANSACTION_MODE,
+                default="auto",
+            ),
         },
         context="NetworkPropertyGraphReader",
     )

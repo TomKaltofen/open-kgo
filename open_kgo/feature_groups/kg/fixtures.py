@@ -48,7 +48,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 from urllib.parse import urlparse
 
 # SAXException is used purely as a parent class for narrowing the
@@ -126,6 +126,38 @@ def _validate_local_locator(connector_id: str, locator: Any) -> Path:
     return Path(locator_str)
 
 
+_T = TypeVar("_T")
+
+
+def _load_cached(connector_id: str, locator: Any, cached_loader: Callable[..., _T], *, mtime_keyed: bool = True) -> _T:
+    """Shared validate -> stat -> resolve -> cached-call -> error-translation pipeline.
+
+    Every public loader below is this wrapper plus a format-specific cached
+    inner function. ``mtime_keyed=True`` (JSON / RDF / oxigraph) stats the
+    path and calls ``cached_loader(abs_path, mtime_ns)`` so the cache
+    invalidates when the file changes; ``mtime_keyed=False`` (kuzu) calls
+    ``cached_loader(abs_path)`` so the handle survives the backend's own
+    directory writes (see ``load_kuzu_database`` for why). Failure modes:
+    a remote scheme or unstattable path raises ``FixtureLoadError`` against
+    the caller-supplied locator string; a ``_FixtureLoadProblem`` from the
+    inner loader is re-raised as ``FixtureLoadError`` against the resolved
+    absolute path (matching the cache key the problem occurred under).
+    """
+    path = _validate_local_locator(connector_id, locator)
+    locator_str = str(locator)
+    key_args: tuple[int, ...] = ()
+    if mtime_keyed:
+        try:
+            key_args = (path.stat().st_mtime_ns,)
+        except OSError as exc:
+            raise FixtureLoadError(connector_id, locator_str, f"cannot stat locator path: {exc}") from exc
+    abs_path = str(path.resolve())
+    try:
+        return cached_loader(abs_path, *key_args)
+    except _FixtureLoadProblem as exc:
+        raise FixtureLoadError(connector_id, abs_path, exc.reason) from exc.__cause__
+
+
 def load_json_fixture(connector_id: str, locator: Any) -> dict[str, Any]:
     """Resolve ``locator`` to a local file, read it as UTF-8 JSON, validate top-level shape.
 
@@ -138,17 +170,7 @@ def load_json_fixture(connector_id: str, locator: Any) -> dict[str, Any]:
     MUST treat it as read-only (shallow-copy any row appended into a
     result list — see ``FileFixtureCitationReader.load_data``).
     """
-    path = _validate_local_locator(connector_id, locator)
-    locator_str = str(locator)
-    try:
-        mtime_ns = path.stat().st_mtime_ns
-    except OSError as exc:
-        raise FixtureLoadError(connector_id, locator_str, f"cannot stat locator path: {exc}") from exc
-    abs_path = str(path.resolve())
-    try:
-        return _read_json_cached(abs_path, mtime_ns)
-    except _FixtureLoadProblem as exc:
-        raise FixtureLoadError(connector_id, abs_path, exc.reason) from exc.__cause__
+    return _load_cached(connector_id, locator, _read_json_cached)
 
 
 @lru_cache(maxsize=64)
@@ -184,17 +206,7 @@ def load_rdf_graph(connector_id: str, locator: Any) -> rdflib.Graph:
     ``connect()``'s return survives the cache; ``add`` / ``remove`` calls
     would corrupt subsequent loads in the same process.
     """
-    path = _validate_local_locator(connector_id, locator)
-    locator_str = str(locator)
-    try:
-        mtime_ns = path.stat().st_mtime_ns
-    except OSError as exc:
-        raise FixtureLoadError(connector_id, locator_str, f"cannot stat locator path: {exc}") from exc
-    abs_path = str(path.resolve())
-    try:
-        return _read_rdf_graph_cached(abs_path, mtime_ns)
-    except _FixtureLoadProblem as exc:
-        raise FixtureLoadError(connector_id, abs_path, exc.reason) from exc.__cause__
+    return _load_cached(connector_id, locator, _read_rdf_graph_cached)
 
 
 @lru_cache(maxsize=64)
@@ -248,17 +260,7 @@ def load_oxigraph_store(connector_id: str, locator: Any) -> Any:
     across calls; callers run read-only SPARQL queries against it and MUST
     NOT mutate it.
     """
-    path = _validate_local_locator(connector_id, locator)
-    locator_str = str(locator)
-    try:
-        mtime_ns = path.stat().st_mtime_ns
-    except OSError as exc:
-        raise FixtureLoadError(connector_id, locator_str, f"cannot stat locator path: {exc}") from exc
-    abs_path = str(path.resolve())
-    try:
-        return _read_oxigraph_store_cached(abs_path, mtime_ns)
-    except _FixtureLoadProblem as exc:
-        raise FixtureLoadError(connector_id, abs_path, exc.reason) from exc.__cause__
+    return _load_cached(connector_id, locator, _read_oxigraph_store_cached)
 
 
 @lru_cache(maxsize=64)
@@ -330,11 +332,7 @@ def load_kuzu_database(connector_id: str, locator: Any) -> Any:
     # typed FixtureLoadError.
     if not path.exists():
         raise FixtureLoadError(connector_id, locator_str, f"kuzu locator path does not exist: {locator_str!r}")
-    abs_path = str(path.resolve())
-    try:
-        return _open_kuzu_database_cached(abs_path)
-    except _FixtureLoadProblem as exc:
-        raise FixtureLoadError(connector_id, abs_path, exc.reason) from exc.__cause__
+    return _load_cached(connector_id, locator, _open_kuzu_database_cached, mtime_keyed=False)
 
 
 @lru_cache(maxsize=64)

@@ -4,23 +4,19 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
-
 from open_kgo.feature_groups.kg.base import (
     KgConnectorFeatureGroupBase,
     ParamReader,
     compose_property_mapping,
 )
 from open_kgo.feature_groups.kg.mixins import PaginationMixin
+from open_kgo.feature_groups.kg.spec import property_spec
 
 
 _PER_CALL_ENTITY: dict[str, Any] = {
-    "entity_type": {
-        "explanation": "Resource type for the request (e.g. 'works', 'authors').",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: None,
-    },
+    "entity_type": property_spec(
+        "Resource type for the request (e.g. 'works', 'authors').",
+    ),
 }
 
 
@@ -29,24 +25,16 @@ class RestPublicReader(PaginationMixin, ParamReader):
         ParamReader.PROPERTY_MAPPING,
         PaginationMixin.PROPERTY_MAPPING_DELTA,
         {
-            "dataset_version": {
-                "explanation": "Optional dataset/release version pin for reproducibility.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "user_agent": {
-                "explanation": "User-Agent string (often required by polite-pool endpoints).",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "rate_limit_pace": {
-                "explanation": "Soft pace cap (requests/min); concrete plugin enforces.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: 100,
-            },
+            "dataset_version": property_spec(
+                "Optional dataset/release version pin for reproducibility.",
+            ),
+            "user_agent": property_spec(
+                "User-Agent string (often required by polite-pool endpoints).",
+            ),
+            "rate_limit_pace": property_spec(
+                "Soft pace cap (requests/min); concrete plugin enforces.",
+                default=100,
+            ),
         },
         context="RestPublicReader",
     )

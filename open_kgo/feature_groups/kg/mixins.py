@@ -19,11 +19,10 @@ defaults; lineage / code_build use per-call params).
 from __future__ import annotations
 
 import re
-from typing import Any, ClassVar, Mapping
-
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
+from typing import Any, ClassVar, Mapping, Sequence, TypeVar
 
 from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
+from open_kgo.feature_groups.kg.spec import property_spec
 
 # Single source of truth for pagination styles: each value carries a family
 # tag and a docstring. The PaginationMixin spec dict and the cursor-family set
@@ -102,25 +101,49 @@ def parse_page_size(connector_id: str, value: Any, default: int) -> int:
     return value
 
 
+_ItemT = TypeVar("_ItemT")
+
+
+def cursor_page_slice(
+    connector_id: str,
+    items: Sequence[_ItemT],
+    *,
+    cursor_token: Any,
+    page_size_value: Any,
+    result_limit: int,
+    default_page_size: int = 100,
+) -> list[_ItemT]:
+    """Shared cursor-pagination epilogue: decode the token, guard the size, slice the page.
+
+    The two cursor-paginating concretes (``PaginatedCitationReader``,
+    ``PaginatedTupleStoreReader``) used to spell the same three lines each:
+    ``parse_offset_cursor`` + ``parse_page_size`` + the
+    ``[offset : offset + page_size][:result_limit]`` double slice. Centralising
+    the epilogue keeps the token convention, the size guard, and the
+    result-limit cap in one place next to ``PaginationMixin``.
+
+    ``items`` must already be deterministically ordered (both call sites sort
+    first); the positional ``offset:<N>`` token indexes into that order, so an
+    unsorted input would make a saved token return arbitrary rows. The caller
+    passes the raw ``cursor_token`` param and ``page_size`` slot values; the
+    typed-error guards in the two parse helpers fire from here unchanged.
+    """
+    offset = parse_offset_cursor(connector_id, cursor_token)
+    page_size = parse_page_size(connector_id, page_size_value, default_page_size)
+    return list(items[offset : offset + page_size][:result_limit])
+
+
 _ENTITY_FILTER_KEYS: dict[str, Any] = {
-    "entity_type": {
-        "explanation": "Object type for the request (e.g. 'document', 'group').",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: None,
-    },
-    "relationship_type": {
-        "explanation": "Relation/permission type (e.g. 'viewer', 'transitiveMembers').",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: None,
-    },
-    "expand_paths": {
-        "explanation": "Relationship/property paths to expand (e.g. OData $expand or Zanzibar Expand).",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: (),
-    },
+    "entity_type": property_spec(
+        "Object type for the request (e.g. 'document', 'group').",
+    ),
+    "relationship_type": property_spec(
+        "Relation/permission type (e.g. 'viewer', 'transitiveMembers').",
+    ),
+    "expand_paths": property_spec(
+        "Relationship/property paths to expand (e.g. OData $expand or Zanzibar Expand).",
+        default=(),
+    ),
 }
 
 
@@ -171,28 +194,22 @@ class PaginationMixin:
     """
 
     PROPERTY_MAPPING_DELTA: ClassVar[dict[str, Any]] = {
-        "pagination_style": {
-            "explanation": "Pagination strategy used by the remote endpoint.",
-            "allowed_values": {style: explanation for style, (_, explanation) in _PAGINATION_STYLES.items()},
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.default: "none",
-        },
-        "page_size": {
-            "explanation": "Records per page; bounded by remote per-system maximum.",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: 100,
-        },
+        "pagination_style": property_spec(
+            "Pagination strategy used by the remote endpoint.",
+            strict=True,
+            allowed_values={style: explanation for style, (_, explanation) in _PAGINATION_STYLES.items()},
+            default="none",
+        ),
+        "page_size": property_spec(
+            "Records per page; bounded by remote per-system maximum.",
+            default=100,
+        ),
     }
 
     PARAMS_MAPPING_DELTA: ClassVar[dict[str, Any]] = {
-        "cursor_token": {
-            "explanation": "Opaque cursor for pagination_style=cursor; supplied by caller on continuation.",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: None,
-        },
+        "cursor_token": property_spec(
+            "Opaque cursor for pagination_style=cursor; supplied by caller on continuation.",
+        ),
     }
 
     @classmethod
@@ -242,31 +259,26 @@ class TraversalMixin:
     """
 
     PARAMS_MAPPING_DELTA: ClassVar[dict[str, Any]] = {
-        "lineage_direction": {
-            "explanation": "Direction of the lineage walk relative to the start asset.",
-            "allowed_values": {
+        "lineage_direction": property_spec(
+            "Direction of the lineage walk relative to the start asset.",
+            strict=True,
+            allowed_values={
                 "UPSTREAM": "Walk towards sources/dependencies.",
                 "DOWNSTREAM": "Walk towards dependents/consumers.",
                 "BOTH": "Walk both directions.",
                 "ancestors": "Reactome-style ancestors traversal.",
                 "descendants": "Reactome-style descendants traversal.",
             },
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.default: "BOTH",
-        },
-        "upstream_depth": {
-            "explanation": "Depth limit for upstream traversal (independent of downstream).",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: 1,
-        },
-        "downstream_depth": {
-            "explanation": "Depth limit for downstream traversal (independent of upstream).",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: 0,
-        },
+            default="BOTH",
+        ),
+        "upstream_depth": property_spec(
+            "Depth limit for upstream traversal (independent of downstream).",
+            default=1,
+        ),
+        "downstream_depth": property_spec(
+            "Depth limit for downstream traversal (independent of upstream).",
+            default=0,
+        ),
     }
 
 
@@ -280,17 +292,16 @@ class InferenceMixin:
     """
 
     PROPERTY_MAPPING_DELTA: ClassVar[dict[str, Any]] = {
-        "reasoning_profile": {
-            "explanation": "Inference profile / rule set the engine should apply.",
-            "allowed_values": {
+        "reasoning_profile": property_spec(
+            "Inference profile / rule set the engine should apply.",
+            strict=True,
+            allowed_values={
                 "none": "No inference; raw triples/edges.",
                 "rdfs": "RDFS entailment.",
                 "owl-rl": "OWL 2 RL profile.",
                 "owl-dl": "OWL 2 DL profile.",
                 "custom": "Vendor-specific named ruleset (concrete plugin should validate further).",
             },
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.default: "none",
-        },
+            default="none",
+        ),
     }

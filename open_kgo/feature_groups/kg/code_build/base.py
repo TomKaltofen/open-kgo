@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
-
 from open_kgo.feature_groups.kg.base import (
     KgConnectorFeatureGroupBase,
     ParamReader,
     compose_property_mapping,
 )
 from open_kgo.feature_groups.kg.mixins import EntityFilterParamMixin, TraversalMixin
+from open_kgo.feature_groups.kg.spec import property_spec
 
 
 class CodeBuildReader(ParamReader):
@@ -24,35 +23,23 @@ class CodeBuildReader(ParamReader):
     PROPERTY_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
         ParamReader.PROPERTY_MAPPING,
         {
-            "manifest_path": {
-                "explanation": (
+            "manifest_path": property_spec(
+                (
                     "Path to the manifest/database/SBOM artifact. This family deliberately keys on "
                     "manifest_path instead of the shared 'locator' slot (a richer address paired with "
                     "commit_sha/branch/language_code); 'locator' is still accepted as a fallback. See the "
                     "DESIGN NOTE in this package's __init__.py."
                 ),
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "commit_sha": {
-                "explanation": "Source commit SHA the artifact was produced from.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "branch": {
-                "explanation": "Source branch the artifact was produced on.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "language_code": {
-                "explanation": "Language code (e.g. 'java', 'python') for language-scoped artifacts.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
+            ),
+            "commit_sha": property_spec(
+                "Source commit SHA the artifact was produced from.",
+            ),
+            "branch": property_spec(
+                "Source branch the artifact was produced on.",
+            ),
+            "language_code": property_spec(
+                "Language code (e.g. 'java', 'python') for language-scoped artifacts.",
+            ),
         },
         context="CodeBuildReader",
     )

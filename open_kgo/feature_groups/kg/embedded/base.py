@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
-
 from open_kgo.feature_groups.kg.base import (
     KgConnectorFeatureGroupBase,
     ParamReader,
     compose_property_mapping,
 )
+from open_kgo.feature_groups.kg.spec import property_spec
 
 
 _GRAPH_FILE_FORMATS: dict[str, str] = {
@@ -66,25 +65,20 @@ class EmbeddedGraphReader(ParamReader):
     PROPERTY_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
         ParamReader.PROPERTY_MAPPING,
         {
-            "graph_file_format": {
-                "explanation": "Graph serialisation format the locator points at.",
-                "allowed_values": _GRAPH_FILE_FORMATS,
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: True,
-                DefaultOptionKeys.default: "gml",
-            },
-            "read_only": {
-                "explanation": "Open the graph in read-only mode (advisory; concrete plugin enforces).",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: True,
-            },
-            "max_threads": {
-                "explanation": "Soft cap on background worker threads; concrete plugin honors if relevant.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: 1,
-            },
+            "graph_file_format": property_spec(
+                "Graph serialisation format the locator points at.",
+                strict=True,
+                allowed_values=_GRAPH_FILE_FORMATS,
+                default="gml",
+            ),
+            "read_only": property_spec(
+                "Open the graph in read-only mode (advisory; concrete plugin enforces).",
+                default=True,
+            ),
+            "max_threads": property_spec(
+                "Soft cap on background worker threads; concrete plugin honors if relevant.",
+                default=1,
+            ),
         },
         context="EmbeddedGraphReader",
     )
@@ -96,19 +90,15 @@ class EmbeddedGraphReader(ParamReader):
 
     PARAMS_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
         {
-            "operation": {
-                "explanation": "Per-call operation against the embedded graph.",
-                "allowed_values": _OPERATIONS,
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: True,
-                DefaultOptionKeys.default: "nodes",
-            },
-            "start_node": {
-                "explanation": "Starting node id for `operation=neighbors`; ignored for nodes/edges.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
+            "operation": property_spec(
+                "Per-call operation against the embedded graph.",
+                strict=True,
+                allowed_values=_OPERATIONS,
+                default="nodes",
+            ),
+            "start_node": property_spec(
+                "Starting node id for `operation=neighbors`; ignored for nodes/edges.",
+            ),
         },
         context="EmbeddedGraphReader.PARAMS_MAPPING",
     )

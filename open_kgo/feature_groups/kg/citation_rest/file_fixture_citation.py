@@ -19,7 +19,7 @@ from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
-from open_kgo.feature_groups.kg.base import narrow_property_mapping
+from open_kgo.feature_groups.kg.base import LoadContext, narrow_property_mapping
 from open_kgo.feature_groups.kg.citation_rest.base import (
     CitationRestFeatureGroup,
     CitationRestReader,
@@ -50,9 +50,8 @@ class FileFixtureCitationReader(CitationRestReader):
         return load_json_fixture(cls.CONNECTOR_ID, slot["locator"])
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        catalog = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        catalog = connection
         # Thread ctx.slot through so the cross-layer hook engages. cursor_token
         # is stripped from PARAMS_MAPPING here, so _reject_stripped_params
         # short-circuits before _validate_cross_layer; the slot is still passed

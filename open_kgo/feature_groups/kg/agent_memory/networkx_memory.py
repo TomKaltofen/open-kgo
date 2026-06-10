@@ -33,6 +33,7 @@ from open_kgo.feature_groups.kg.agent_memory.base import (
     AgentMemoryFeatureGroup,
     AgentMemoryReader,
 )
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.errors import FixtureLoadError, UnknownMemoryScopeError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
 
@@ -117,9 +118,8 @@ class NetworkxMemoryReader(AgentMemoryReader):
         return text
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        graph = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        graph = connection
         query_text = cls.build_query(features).lower()
         valid_range = ctx.slot.get("valid_at_range") or ()
 

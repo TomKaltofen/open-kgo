@@ -116,6 +116,35 @@ def make_valid_credentials(
     return {reader_class.CONNECTOR_ID: slot}
 
 
+def canonical_row_key(row: Any) -> str:
+    """Order-insensitive sort key for result rows (used by idempotence checks).
+
+    Rows are ``dict[str, Any]`` and ``sorted`` cannot order dicts directly, so
+    the key recursively canonicalises each row: nested dicts are sorted by
+    ``repr(key)``, nested sets/frozensets are sorted as canonical tuples (sets
+    carry no order), and lists/tuples preserve order. The leaf step uses
+    ``repr`` rather than ``str`` so e.g. a ``datetime`` and its ``str()`` form
+    do not collide on the same key (which an earlier
+    ``json.dumps(..., default=str)`` form silently allowed). The recursion is
+    the load-bearing part: two equal rows containing nested dicts with
+    different insertion order produce the same key, so ``sorted()`` pairs them
+    correctly.
+    """
+
+    def _canonical(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return ("__dict__", tuple(sorted((repr(k), _canonical(v)) for k, v in obj.items())))
+        if isinstance(obj, (list, tuple)):
+            tag = "__list__" if isinstance(obj, list) else "__tuple__"
+            return (tag, tuple(_canonical(item) for item in obj))
+        if isinstance(obj, (set, frozenset)):
+            tag = "__set__" if isinstance(obj, set) else "__frozenset__"
+            return (tag, tuple(sorted(repr(_canonical(item)) for item in obj)))
+        return ("__leaf__", repr(obj))
+
+    return repr(_canonical(row))
+
+
 def bogus_value_for_strict_spec(spec: dict[str, Any]) -> Any:
     """Return a value guaranteed not to be in this strict spec's allowed set.
 
