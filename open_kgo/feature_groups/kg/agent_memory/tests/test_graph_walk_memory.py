@@ -174,8 +174,8 @@ class TestGraphWalkMemoryReader(AgentMemoryContractTestBase):
     def test_malformed_user_entry_missing_edges_raises_typed_error(self, tmp_path: Path) -> None:
         """A user entry missing the required ``edges`` key raises ``FixtureLoadError``.
 
-        Exercises the ``_validate_user_data`` error branch (duplicated locally
-        in this concrete) that the linear-fixture tests never reached.
+        Exercises the ``validate_user_data`` error branch (shared via
+        ``agent_memory/shared.py``) that the linear-fixture tests never reached.
         """
         fixture = tmp_path / "broken.json"
         fixture.write_text(

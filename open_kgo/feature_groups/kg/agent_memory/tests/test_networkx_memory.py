@@ -134,7 +134,7 @@ class TestNetworkxMemoryReader(AgentMemoryContractTestBase):
         Guards against the otherwise-silent ``user_id not in store`` path
         where ``store`` is a list (sequence ``__contains__`` succeeds for
         member equality) or a scalar (raises ``TypeError`` deep inside
-        ``_build_memory_graph``).
+        ``build_memory_graph`` in ``agent_memory/shared.py``).
         """
         bad = tmp_path / "list.json"
         bad.write_text("[]", encoding="utf-8")

@@ -39,74 +39,10 @@ from open_kgo.feature_groups.kg.agent_memory.base import (
     AgentMemoryFeatureGroup,
     AgentMemoryReader,
 )
+from open_kgo.feature_groups.kg.agent_memory.shared import build_memory_graph, validate_user_data
 from open_kgo.feature_groups.kg.base import LoadContext
-from open_kgo.feature_groups.kg.errors import FixtureLoadError, UnknownMemoryScopeError
+from open_kgo.feature_groups.kg.errors import UnknownMemoryScopeError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
-
-
-def _validate_user_data(connector_id: str, locator: str, user_id: str, user_data: Any) -> Mapping[str, Any]:
-    """Raise ``FixtureLoadError`` unless ``user_data`` matches the documented shape.
-
-    Kept local to this concrete (rather than imported from the lexical reader's
-    private module) so the two backends stay independent — the same
-    self-contained pattern the other families follow.
-
-    Beyond the top-level shape, every node must be an object carrying ``id``
-    and every edge an object carrying ``src``/``tgt`` whose endpoints reference
-    declared node ids. ``MultiDiGraph.add_edge`` auto-creates missing
-    endpoints, so a dangling edge reference would otherwise materialize an
-    attribute-less node whose BFS row is missing ``label``, silently violating
-    the family row shape; missing ``id``/``src``/``tgt`` keys would surface as
-    raw ``KeyError`` from the graph builder.
-    """
-    if not isinstance(user_data, dict):
-        raise FixtureLoadError(
-            connector_id, locator, f"entry for {user_id!r} must be an object, got {type(user_data).__name__}."
-        )
-    for key in ("nodes", "edges"):
-        if key not in user_data:
-            raise FixtureLoadError(connector_id, locator, f"entry for {user_id!r} is missing required key {key!r}.")
-        if not isinstance(user_data[key], list):
-            raise FixtureLoadError(
-                connector_id,
-                locator,
-                f"entry for {user_id!r} key {key!r} must be a list, got {type(user_data[key]).__name__}.",
-            )
-    node_ids: set[Any] = set()
-    for index, node in enumerate(user_data["nodes"]):
-        if not isinstance(node, dict) or "id" not in node:
-            raise FixtureLoadError(
-                connector_id,
-                locator,
-                f"entry for {user_id!r} nodes[{index}] must be an object with an 'id' key, got {node!r}.",
-            )
-        node_ids.add(node["id"])
-    for index, edge in enumerate(user_data["edges"]):
-        if not isinstance(edge, dict) or "src" not in edge or "tgt" not in edge:
-            raise FixtureLoadError(
-                connector_id,
-                locator,
-                f"entry for {user_id!r} edges[{index}] must be an object with 'src' and 'tgt' keys, got {edge!r}.",
-            )
-        for endpoint in ("src", "tgt"):
-            if edge[endpoint] not in node_ids:
-                raise FixtureLoadError(
-                    connector_id,
-                    locator,
-                    f"entry for {user_id!r} edges[{index}] {endpoint}={edge[endpoint]!r} references no declared "
-                    f"node id (dangling edge endpoints would materialize attribute-less rows).",
-                )
-    return user_data
-
-
-def _build_memory_graph(user_data: Mapping[str, Any]) -> nx.MultiDiGraph:
-    """Build a directed memory graph from a single user's validated entry."""
-    g: nx.MultiDiGraph = nx.MultiDiGraph()
-    for node in user_data["nodes"]:
-        g.add_node(node["id"], **{k: v for k, v in node.items() if k != "id"})
-    for edge in user_data["edges"]:
-        g.add_edge(edge["src"], edge["tgt"], **{k: v for k, v in edge.items() if k not in {"src", "tgt"}})
-    return g
 
 
 class GraphWalkMemoryReader(AgentMemoryReader):
@@ -137,8 +73,10 @@ class GraphWalkMemoryReader(AgentMemoryReader):
         user_id = str(slot["memory_scope_user_id"])
         if user_id not in store:
             raise UnknownMemoryScopeError(cls.CONNECTOR_ID, user_id)
-        user_data = _validate_user_data(cls.CONNECTOR_ID, locator, user_id, store[user_id])
-        return _build_memory_graph(user_data)
+        # require_graph_integrity: this concrete's rows come straight from the
+        # BFS walk, so dangling edge endpoints must be rejected at connect time.
+        user_data = validate_user_data(cls.CONNECTOR_ID, locator, user_id, store[user_id], require_graph_integrity=True)
+        return build_memory_graph(user_data)
 
     @classmethod
     def build_query(cls, features: FeatureSet) -> str:

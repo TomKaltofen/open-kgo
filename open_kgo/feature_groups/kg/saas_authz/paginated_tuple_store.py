@@ -38,39 +38,15 @@ from typing import Any, ClassVar, Mapping
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
 from open_kgo.feature_groups.kg.base import LoadContext
-from open_kgo.feature_groups.kg.errors import FixtureLoadError, InvalidCredentialShape, UnknownTenantError
+from open_kgo.feature_groups.kg.errors import InvalidCredentialShape, UnknownTenantError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
 from open_kgo.feature_groups.kg.mixins import cursor_page_slice
 from open_kgo.feature_groups.kg.saas_authz.base import (
     SaasAuthzFeatureGroup,
     SaasAuthzReader,
 )
-
-_Tuple = tuple[str, str, str, str]
-
-
-def _validate_tuples(connector_id: str, locator: str, tenant: str, raw: Any) -> list[_Tuple]:
-    """Raise ``FixtureLoadError`` unless ``raw`` is a list of 4-string tuples; return as ``list[tuple]``.
-
-    Duplicated verbatim from the sibling ``in_process_tuple_store`` module
-    (rather than imported from its private namespace) so the two backends
-    stay independent: the same self-contained pattern agent_memory follows
-    for its per-concrete ``_validate_user_data`` helpers.
-    """
-    if not isinstance(raw, list):
-        raise FixtureLoadError(
-            connector_id, locator, f"tenant {tenant!r} entry must be a list, got {type(raw).__name__}."
-        )
-    out: list[_Tuple] = []
-    for index, item in enumerate(raw):
-        if not isinstance(item, list) or len(item) != 4 or not all(isinstance(s, str) for s in item):
-            raise FixtureLoadError(
-                connector_id,
-                locator,
-                f"tenant {tenant!r} index {index}: each tuple must be a list of 4 strings, got {item!r}.",
-            )
-        out.append((item[0], item[1], item[2], item[3]))
-    return out
+from open_kgo.feature_groups.kg.saas_authz.shared import AuthzTuple as _Tuple
+from open_kgo.feature_groups.kg.saas_authz.shared import validate_tuples
 
 
 def _validate_expand_paths(connector_id: str, raw: Any) -> tuple[str, ...]:
@@ -189,7 +165,7 @@ class PaginatedTupleStoreReader(SaasAuthzReader):
         tenant = str(slot["tenant"])
         if tenant not in stores:
             raise UnknownTenantError(cls.CONNECTOR_ID, tenant)
-        return _validate_tuples(cls.CONNECTOR_ID, locator, tenant, stores[tenant])
+        return validate_tuples(cls.CONNECTOR_ID, locator, tenant, stores[tenant])
 
     @classmethod
     def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:

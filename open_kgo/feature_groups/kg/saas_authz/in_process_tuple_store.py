@@ -65,32 +65,13 @@ from mloda.core.abstract_plugins.components.default_options_key import DefaultOp
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
 from open_kgo.feature_groups.kg.base import LoadContext, narrow_property_mapping
-from open_kgo.feature_groups.kg.errors import FixtureLoadError, UnknownTenantError
+from open_kgo.feature_groups.kg.errors import UnknownTenantError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
 from open_kgo.feature_groups.kg.saas_authz.base import (
     SaasAuthzFeatureGroup,
     SaasAuthzReader,
 )
-
-
-def _validate_tuples(connector_id: str, locator: str, tenant: str, raw: Any) -> list[tuple[str, str, str, str]]:
-    """Raise ``FixtureLoadError`` unless ``raw`` is a list of 4-string tuples; return as ``list[tuple]``."""
-    if not isinstance(raw, list):
-        raise FixtureLoadError(
-            connector_id,
-            locator,
-            f"tenant {tenant!r} entry must be a list, got {type(raw).__name__}.",
-        )
-    out: list[tuple[str, str, str, str]] = []
-    for index, item in enumerate(raw):
-        if not isinstance(item, list) or len(item) != 4 or not all(isinstance(s, str) for s in item):
-            raise FixtureLoadError(
-                connector_id,
-                locator,
-                f"tenant {tenant!r} index {index}: each tuple must be a list of 4 strings, got {item!r}.",
-            )
-        out.append((item[0], item[1], item[2], item[3]))
-    return out
+from open_kgo.feature_groups.kg.saas_authz.shared import AuthzTuple, validate_tuples
 
 
 class InProcessTupleStoreReader(SaasAuthzReader):
@@ -155,13 +136,13 @@ class InProcessTupleStoreReader(SaasAuthzReader):
     }
 
     @classmethod
-    def _connect_from_slot(cls, slot: Mapping[str, Any]) -> list[tuple[str, str, str, str]]:
+    def _connect_from_slot(cls, slot: Mapping[str, Any]) -> list[AuthzTuple]:
         fixture = str(cls._FIXTURE_PATH)
         stores = load_json_fixture(cls.CONNECTOR_ID, fixture)
         tenant = str(slot["tenant"])
         if tenant not in stores:
             raise UnknownTenantError(cls.CONNECTOR_ID, tenant)
-        return _validate_tuples(cls.CONNECTOR_ID, fixture, tenant, stores[tenant])
+        return validate_tuples(cls.CONNECTOR_ID, fixture, tenant, stores[tenant])
 
     @classmethod
     def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:

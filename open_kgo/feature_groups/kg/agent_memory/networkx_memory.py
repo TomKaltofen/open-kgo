@@ -33,47 +33,10 @@ from open_kgo.feature_groups.kg.agent_memory.base import (
     AgentMemoryFeatureGroup,
     AgentMemoryReader,
 )
+from open_kgo.feature_groups.kg.agent_memory.shared import build_memory_graph, validate_user_data
 from open_kgo.feature_groups.kg.base import LoadContext
-from open_kgo.feature_groups.kg.errors import FixtureLoadError, UnknownMemoryScopeError
+from open_kgo.feature_groups.kg.errors import UnknownMemoryScopeError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
-
-
-def _build_memory_graph(user_id: str, user_data: Mapping[str, Any]) -> nx.MultiDiGraph:
-    """Build a MultiDiGraph for ``user_id`` from a single user's already-validated entry.
-
-    ``user_data`` is the inner ``{"nodes": [...], "edges": [...]}``
-    object — shape validation lives in ``_validate_user_data`` so this
-    builder can use direct subscript access (no ``.get(..., [])``
-    silent fallbacks).
-    """
-    g: nx.MultiDiGraph = nx.MultiDiGraph()
-    for node in user_data["nodes"]:
-        node_attrs = {k: v for k, v in node.items() if k != "id"}
-        g.add_node(node["id"], **node_attrs)
-    for edge in user_data["edges"]:
-        edge_attrs = {k: v for k, v in edge.items() if k not in {"src", "tgt"}}
-        g.add_edge(edge["src"], edge["tgt"], **edge_attrs)
-    return g
-
-
-def _validate_user_data(connector_id: str, locator: str, user_id: str, user_data: Any) -> Mapping[str, Any]:
-    """Raise ``FixtureLoadError`` unless ``user_data`` matches the documented shape."""
-    if not isinstance(user_data, dict):
-        raise FixtureLoadError(
-            connector_id,
-            locator,
-            f"entry for {user_id!r} must be an object, got {type(user_data).__name__}.",
-        )
-    for key in ("nodes", "edges"):
-        if key not in user_data:
-            raise FixtureLoadError(connector_id, locator, f"entry for {user_id!r} is missing required key {key!r}.")
-        if not isinstance(user_data[key], list):
-            raise FixtureLoadError(
-                connector_id,
-                locator,
-                f"entry for {user_id!r} key {key!r} must be a list, got {type(user_data[key]).__name__}.",
-            )
-    return user_data
 
 
 class NetworkxMemoryReader(AgentMemoryReader):
@@ -106,8 +69,8 @@ class NetworkxMemoryReader(AgentMemoryReader):
         user_id = str(slot["memory_scope_user_id"])
         if user_id not in store:
             raise UnknownMemoryScopeError(cls.CONNECTOR_ID, user_id)
-        user_data = _validate_user_data(cls.CONNECTOR_ID, locator, user_id, store[user_id])
-        return _build_memory_graph(user_id, user_data)
+        user_data = validate_user_data(cls.CONNECTOR_ID, locator, user_id, store[user_id])
+        return build_memory_graph(user_data)
 
     @classmethod
     def build_query(cls, features: FeatureSet) -> str:
