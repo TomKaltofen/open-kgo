@@ -78,6 +78,8 @@ def _fx(*parts: str) -> str:
 
 # Structural-tag vocabularies. A new connector whose shape is not one of these trips
 # test_asymmetry_catalog, forcing a conscious classification rather than a silent new shape.
+# _LOCATOR_KEYS doubles as the allowed vocabulary for SOURCE_SLOT declarations (None -> "baked"):
+# test_source_slot_declaration_matches_catalog fails any spelling outside it (issue #21).
 _INPUT_SHAPES = frozenset({"query_text", "operation", "lineage", "citation", "none"})
 _LOCATOR_KEYS = frozenset({"locator", "manifest_path", "baked"})
 _FIXTURE_SCOPES = frozenset({"family_tests", "baked", "built"})
@@ -541,6 +543,57 @@ def test_registry_tags_use_known_vocabularies() -> None:
         assert case.setup in _SETUPS, f"{case.connector_id}: unknown setup {case.setup!r}"
 
 
+def _declared_locator_tag(reader: type[KgConnectorReaderBase]) -> str:
+    """Map a reader's ``SOURCE_SLOT`` declaration onto the catalog's ``locator_key`` vocabulary."""
+    return "baked" if reader.SOURCE_SLOT is None else reader.SOURCE_SLOT
+
+
+def test_source_slot_declaration_matches_catalog() -> None:
+    """Every connector's declared source slot is a known spelling, and CASES tags mirror it.
+
+    The asserting half of issue #21 (the class-time half is
+    ``KgConnectorReaderBase._validate_source_slot``). Two gates:
+
+    1. The ``SOURCE_SLOT`` declaration of every discovered production connector
+       (mapped onto the catalog vocabulary via ``None`` -> ``"baked"``) must be
+       in ``_LOCATOR_KEYS``. A connector introducing a fourth spelling goes red
+       here until the vocabulary is consciously extended, instead of slipping
+       into the lineup unnoticed.
+    2. Each ``CASES`` entry's hand-written ``locator_key`` tag must equal the
+       reader's declaration, so the asymmetry catalog's locator dimension is
+       checked data rather than prose a human keeps in sync.
+    """
+    readers_by_id = {
+        sub.CONNECTOR_ID: sub for sub in walk_subclasses(KgConnectorReaderBase) if _is_production_connector(sub)
+    }
+
+    unknown = {
+        connector_id: _declared_locator_tag(sub)
+        for connector_id, sub in readers_by_id.items()
+        if _declared_locator_tag(sub) not in _LOCATOR_KEYS
+    }
+    assert not unknown, (
+        f"connectors declaring a SOURCE_SLOT spelling outside the known vocabulary {sorted(_LOCATOR_KEYS)}: "
+        f"{unknown}. Extend _LOCATOR_KEYS consciously (and explain the new spelling in the asymmetry "
+        f"catalog docstring) or align the connector with an existing slot name."
+    )
+
+    mismatched: list[str] = []
+    for case in CASES:
+        reader = readers_by_id.get(case.connector_id)
+        if reader is None:
+            # A CASES entry naming a connector discovery cannot find is a ghost;
+            # test_registry_covers_all_discovered_connectors reports that
+            # readably, so skip it here rather than dying on a KeyError.
+            continue
+        declared = _declared_locator_tag(reader)
+        if case.locator_key != declared:
+            mismatched.append(
+                f"{case.connector_id}: CASES tags locator_key={case.locator_key!r} but the reader declares {declared!r}"
+            )
+    assert not mismatched, "CASES locator_key tags drifted from SOURCE_SLOT declarations:\n" + "\n".join(mismatched)
+
+
 def test_cross_family_asymmetry_catalog() -> None:
     """Emit a readable catalog of where the family lineup is NOT uniform, and assert it is consistent.
 
@@ -568,6 +621,12 @@ def test_cross_family_asymmetry_catalog() -> None:
         store is a binary, version-coupled format, so a committed fixture would be fragile across ``kuzu``
         upgrades; the sibling ``grand_cypher`` reads a committed ``.gml``, so the family shows both shapes.
         See the DESIGN NOTE in ``kg/network_pg/tests/test_kuzu_cypher.py``.
+
+    Since issue #21 the ``credential locator key`` dimension is declared data, not prose: each reader
+    carries a ``SOURCE_SLOT`` declaration (the "Source-slot convention" in ``kg/base.py``), enforced at
+    class definition by ``_validate_source_slot`` and gated suite-wide by
+    ``test_source_slot_declaration_matches_catalog`` above. This catalog keeps printing the dimension so
+    the map stays complete in one place.
     """
     by_input: dict[str, list[str]] = defaultdict(list)
     by_locator: dict[str, list[str]] = defaultdict(list)
