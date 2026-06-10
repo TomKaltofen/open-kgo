@@ -36,12 +36,9 @@ class LineageReader(ParamReader):
 
     REQUIRED_PARAMS: ClassVar[tuple[tuple[str, ...], ...]] = (("asset_urn",),)
 
-    # Honest credential surface (option 3, see base.py): the lineage concretes
-    # walk by ``lineage_direction`` / ``upstream_depth`` / ``downstream_depth``
-    # from ``asset_urn`` and do not filter the walk by entity/relation. The
-    # ``entity_type`` / ``relationship_type`` / ``expand_paths`` filter keys
-    # (from EntityFilterParamMixin) are forward-compat surface reserved for a
-    # concrete that scopes the traversal (DataHub/Atlas-style).
+    # Honest surface (option 3, see base.py): entity/relation filter keys (from
+    # EntityFilterParamMixin) the concretes don't apply (they walk by
+    # direction/depth from asset_urn), reserved for a traversal-scoping concrete.
     _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"entity_type", "relationship_type", "expand_paths"})
 
 

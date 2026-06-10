@@ -328,33 +328,16 @@ class KgConnectorContractBase(ABC):
             )
 
     def test_no_unconsumed_advertised_keys(self) -> None:
-        """Every advertised non-strict credential/param key is consumed or explicitly waived.
+        """Every advertised non-strict credential/param key is consumed or waived.
 
-        Enforces the "Honest credential surface" rule (see the section of that
-        name in ``base.py``): a connector must not advertise a slot or param it
-        silently ignores. Strict-validation enums are dispositioned by
-        ``test_strict_enum_honored_or_waived`` (``SUPPORTED_VALUES`` /
-        ``_WAIVED_ENUM_KEYS``); this test owns the complementary non-strict
-        keys, so the two together cover the whole advertised surface.
-
-        For each non-strict key in ``PROPERTY_MAPPING`` (and ``PARAMS_MAPPING``
-        on ``ParamReader`` concretes), one of:
-
-        - the key appears as an exact string literal in some reader method
-          across the connector's kg-package MRO (``slot["locator"]``,
-          ``params.get("stable_id")``, ...) — proof it is read at runtime; or
-        - the key is listed in ``_WAIVED_UNCONSUMED_KEYS`` (unioned across the
-          MRO) with a one-line comment explaining why it is advertised but not
-          yet consumed (forward-compat surface reserved for a future concrete).
-
-        Heuristic by design (per issue #22): exact string-literal membership is
-        a proxy for consumption. It can in principle be fooled (a key read via a
-        computed name, or a non-docstring string that happens to equal the key),
-        but every shipped reader reads its keys by literal, so the proxy is
-        reliable here and turns a silent surface lie into a red build for new
-        connectors. The honest fixes when this fails: read the key, strip it
-        from the mapping (``narrow_property_mapping`` / ``PARAMS`` narrowing), or
-        waive it.
+        Enforces the "Honest credential surface" rule (see base.py). Strict
+        enums are owned by ``test_strict_enum_honored_or_waived``; this test
+        owns the complementary non-strict keys. Each must either appear as an
+        exact string literal in a reader method across the kg-package MRO (read
+        at runtime) or be listed in ``_WAIVED_UNCONSUMED_KEYS`` (unioned across
+        the MRO). The literal check is a heuristic proxy for consumption (per
+        issue #22): every shipped reader reads its keys by literal, so it
+        reliably turns a silent surface lie into a red build.
         """
         cls = self.connector_reader_class()
         consumed = reader_string_literals(cls)

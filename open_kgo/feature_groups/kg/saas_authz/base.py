@@ -74,12 +74,9 @@ class SaasAuthzReader(EntityFilterPropertyMixin, PaginationMixin, ParamReader):
         context="SaasAuthzReader.PARAMS_MAPPING",
     )
 
-    # Honest credential surface (option 3, see base.py): ``api_version``,
-    # ``consistency_token`` and ``authorization_model_id`` are real SpiceDB /
-    # OpenFGA / OData knobs, but the in-process tuple-store fakes evaluate
-    # check/list/expand as plain dict ops with no versioning or consistency
-    # semantics (see the PROTOTYPE NOTE in in_process_tuple_store.py), so none is
-    # consulted. Forward-compat surface reserved for a real authz backend.
+    # Honest surface (option 3, see base.py): SpiceDB/OpenFGA/OData knobs the
+    # in-process fakes ignore (plain dict ops, no versioning/consistency),
+    # reserved for a real authz backend.
     _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset(
         {"api_version", "consistency_token", "authorization_model_id"}
     )

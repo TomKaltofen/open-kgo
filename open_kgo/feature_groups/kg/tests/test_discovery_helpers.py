@@ -232,12 +232,7 @@ def test_iter_nonstrict_specs_is_the_complement_of_iter_strict_specs() -> None:
 
 
 def test_reader_string_literals_separates_read_keys_from_declared_only_keys() -> None:
-    """A key read by literal in a method appears; a key only declared in a mapping does not.
-
-    This is the consumption signal the surface-honesty contract relies on: an
-    advertised key the reader never reads is absent from the literal set, so it
-    is flagged unless waived.
-    """
+    """A key read by literal in a method appears; a key only declared in a mapping does not."""
 
     def _exercise() -> set[str]:
         class _ProbeReader(KgConnectorReaderBase):
@@ -264,11 +259,7 @@ def test_reader_string_literals_separates_read_keys_from_declared_only_keys() ->
 
 
 def test_reader_string_literals_includes_inherited_base_consumption() -> None:
-    """Universal keys read in the base (``ontology`` / ``result_limit``) surface for any reader.
-
-    ``_prepare_load`` / ``_validate_result_limit`` read these by literal, so a
-    concrete inherits the consumption evidence and never has to re-read them.
-    """
+    """Universal keys read in the base (``ontology`` / ``result_limit``) surface for any reader."""
 
     def _exercise() -> set[str]:
         class _BareReader(KgConnectorReaderBase):
@@ -285,11 +276,7 @@ def test_reader_string_literals_includes_inherited_base_consumption() -> None:
 
 
 def test_effective_unconsumed_waivers_unions_across_mro() -> None:
-    """A concrete's waiver set unions with every ancestor's, rather than shadowing it.
-
-    Lets a family base waive family-wide forward-compat keys while a concrete
-    adds its own without re-listing the inherited ones.
-    """
+    """A concrete's waiver set unions with every ancestor's, rather than shadowing it."""
 
     def _exercise() -> set[str]:
         class _FamilyBase(KgConnectorReaderBase):
@@ -311,11 +298,7 @@ def test_effective_unconsumed_waivers_unions_across_mro() -> None:
 
 
 def test_unconsumed_waiver_naming_unknown_key_is_rejected_at_class_definition() -> None:
-    """``_WAIVED_UNCONSUMED_KEYS`` naming a key absent from the mappings raises at definition.
-
-    Guards against a stale waiver (the key was stripped) or a typo silently
-    no-oping; ``_validate_unconsumed_waivers`` runs in ``__init_subclass__``.
-    """
+    """``_WAIVED_UNCONSUMED_KEYS`` naming a key absent from the mappings raises at definition."""
     with clean_kg_subclass_registry():
         with pytest.raises(ValueError, match="not present in PROPERTY_MAPPING or PARAMS_MAPPING"):
 
@@ -327,9 +310,8 @@ def test_unconsumed_waiver_naming_unknown_key_is_rejected_at_class_definition() 
 def test_surface_honesty_disposition_flags_a_lie_and_a_waiver_clears_it() -> None:
     """End-to-end: an advertised-but-unread non-strict key is flagged; waiving it clears it.
 
-    Composes the three helpers exactly as ``test_no_unconsumed_advertised_keys``
-    does, proving the contract catches a real surface lie rather than passing
-    vacuously, and that the waiver is the documented escape hatch.
+    Composes the three helpers as ``test_no_unconsumed_advertised_keys`` does,
+    proving the contract catches a real lie rather than passing vacuously.
     """
 
     def _disposition(reader_cls: type[KgConnectorReaderBase]) -> list[str]:

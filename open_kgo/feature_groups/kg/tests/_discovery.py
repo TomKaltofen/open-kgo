@@ -178,13 +178,9 @@ def iter_nonstrict_specs(
 ) -> Iterator[tuple[str, dict[str, Any], _LayerName]]:
     """Yield ``(key, spec, layer_name)`` for every NON-strict-validation spec on ``reader_class``.
 
-    The complement of ``iter_strict_specs`` over the same layers
-    (``PROPERTY_MAPPING`` for every reader, ``PARAMS_MAPPING`` for
-    ``ParamReader`` subclasses). Strict-validation enums are dispositioned by
-    ``test_strict_enum_honored_or_waived`` (``SUPPORTED_VALUES`` /
-    ``_WAIVED_ENUM_KEYS``); the surface-honesty contract
-    (``test_no_unconsumed_advertised_keys``) walks the non-strict keys so the
-    two checks partition the advertised surface without overlap.
+    The complement of ``iter_strict_specs`` over the same layers, so the
+    surface-honesty contract (non-strict keys) and the strict-enum contract
+    partition the advertised surface without overlap.
     """
     layers: list[tuple[_LayerName, dict[str, Any]]] = [
         ("PROPERTY_MAPPING", reader_class.PROPERTY_MAPPING),
@@ -200,35 +196,22 @@ def iter_nonstrict_specs(
 
 
 def reader_string_literals(reader_class: type[KgConnectorReaderBase]) -> set[str]:
-    """Return the exact string-literal values appearing in any method of ``reader_class``'s readers.
+    """Return the exact string-literal values in any reader method across the kg-package MRO.
 
-    Walks ``reader_class.__mro__`` and, for every class defined inside the
-    ``open_kgo.feature_groups.kg`` package (the universal base, family bases,
-    mixins, and the concrete itself), AST-parses each method body and collects
-    every ``ast.Constant`` string value. Classes from outside the package
-    (``ReadDB``, ``BaseInputData``, ``object``) are skipped.
+    The consumption signal for the surface-honesty contract. AST-collects every
+    string ``Constant`` from the methods of each kg-package class in the MRO
+    (concrete, family bases, mixins, universal base); non-package classes are
+    skipped. A key a reader reads appears as an exact literal (``slot["locator"]``,
+    ``params.get("stable_id")``); a key only *declared* in a mapping is a
+    class-level attribute, absent from method source. Exact set membership means
+    docstrings and error-message fragments cannot masquerade as consumption.
 
-    This is the consumption signal for the surface-honesty contract. A
-    credential/param key a reader actually reads appears as an exact literal in
-    a method body (``slot["locator"]``, ``params.get("stable_id")``,
-    ``creds.get("pagination_style")``). A key that is only *declared* in a
-    ``PROPERTY_MAPPING`` / ``PARAMS_MAPPING`` dict lives in a class-level
-    attribute, not in any method source, so it never appears here unless the
-    reader also reads it. Matching is by exact set membership, so docstrings
-    and error-message fragments (whole-string Constants that never equal a
-    short key name) cannot masquerade as consumption.
-
-    ``textwrap.dedent`` is required before ``ast.parse`` because
-    ``inspect.getsource`` returns method bodies at their class indentation,
-    which is not parseable on its own. ``getsource`` failures (C-defined or
-    dynamically built callables) and parse failures are skipped defensively;
-    in practice every reader method is plain Python with retrievable source.
-    One caveat from the dedent: a method whose body contains a flush-left
-    multi-line string literal (continuation lines less indented than the
-    ``def``) defeats ``dedent`` and fails to parse, dropping that method's
-    literals. The failure mode is a false red build (a key read only there
-    would be flagged), never a silent miss, so it surfaces loudly; keep reader
-    key-reads out of flush-left multi-line strings. No shipped method hits it.
+    ``textwrap.dedent`` before ``ast.parse`` strips the method's class
+    indentation; getsource/parse failures are skipped defensively. Caveat: a
+    flush-left multi-line string in a method body defeats dedent and drops that
+    method's literals, but the failure mode is a loud false red build (a key
+    read only there would be flagged), never a silent miss. No shipped method
+    hits it.
     """
     prefix = f"{_KG_PACKAGE_NAME}."
     literals: set[str] = set()
@@ -258,12 +241,8 @@ def reader_string_literals(reader_class: type[KgConnectorReaderBase]) -> set[str
 def effective_unconsumed_waivers(reader_class: type[KgConnectorReaderBase]) -> set[str]:
     """Union the locally-declared ``_WAIVED_UNCONSUMED_KEYS`` across ``reader_class.__mro__``.
 
-    Unlike a plain attribute read (which a subclass declaration would shadow),
-    this merges every class's own waiver set so a family base can waive
-    family-wide forward-compat keys while a concrete adds its own without having
-    to re-list the inherited ones. Only locally-declared sets
-    (``klass.__dict__``) are unioned to avoid double-counting the inherited
-    attribute.
+    Merges each class's own set (not the shadowing attribute read) so a family
+    base can waive family-wide keys while a concrete adds its own.
     """
     waived: set[str] = set()
     for klass in reader_class.__mro__:

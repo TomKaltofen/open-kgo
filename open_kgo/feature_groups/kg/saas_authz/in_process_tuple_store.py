@@ -111,13 +111,10 @@ class InProcessTupleStoreReader(SaasAuthzReader):
     # values, so narrowing here would lock the family contract to the fake's
     # single honored value and force future concretes to widen.
     _WAIVED_ENUM_KEYS: ClassVar[frozenset[str]] = frozenset({"consistency_mode"})
-    # Honest credential surface (option 3, see base.py): this fake returns the
-    # whole tuple list in one shot and filters only by entity_type /
-    # relationship_type, so the pagination ``page_size`` and the ``expand_paths``
-    # relation-expansion key are accepted but not consumed. The sibling
-    # ``PaginatedTupleStoreReader`` honors page_size; this in-process fake does
-    # not. (The family base already waives api_version / consistency_token /
-    # authorization_model_id; this set is unioned with it across the MRO.)
+    # Honest surface (option 3, see base.py): this fake returns the whole list
+    # in one shot and filters only by entity_type/relationship_type, so
+    # ``page_size`` and ``expand_paths`` are unused (the paginated sibling reads
+    # page_size). Unioned with the family-base waivers across the MRO.
     _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"page_size", "expand_paths"})
 
     # The canonical fixture this concrete serves. Pinned at class load so the
