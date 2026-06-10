@@ -58,7 +58,7 @@ rejects an undeclared rename or drop at class-definition time, and the
 cross-family catalog test reads the declaration as data and fails on any
 spelling outside its known vocabulary
 (``test_source_slot_declaration_matches_catalog`` in
-``tests/test_kg_families_e2e.py``), so a fourth spelling cannot creep in
+``tests/test_kg_catalog_declarations.py``), so a fourth spelling cannot creep in
 silently. The guarantee is scoped: it stops a silent drop, rename, or
 unconsumed-waiver of the *declared* slot (a declared ``SOURCE_SLOT`` may not
 appear in ``_WAIVED_UNCONSUMED_KEYS``); it cannot decide that some *other*

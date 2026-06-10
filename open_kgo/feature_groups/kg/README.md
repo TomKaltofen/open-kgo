@@ -37,7 +37,10 @@ kg/
 │   ├── kg_contract.py             Universal abstract test base (5 adapter methods + 26 contract tests)
 │   ├── _helpers.py                Shared run_query / make_valid_credentials helpers
 │   ├── _discovery.py              Reader discovery (import_all_kg_readers / walk_subclasses / ...)
-│   ├── test_kg_families_e2e.py    All-family usage smoke + cross-family gap diagnostics
+│   ├── _family_cases.py           Shared all-family usage registry (CASES) + discovery helpers
+│   ├── test_kg_usage_smoke.py     All-family usage smoke over CASES
+│   ├── test_kg_registry_integrity.py  CASES-vs-discovery gates (coverage, two-per-family floor)
+│   ├── test_kg_catalog_declarations.py  Source-slot gate + cross-family asymmetry catalog
 │   ├── test_resource_cache.py     Resource-lifecycle / shared-cache contract tests
 │   └── test_*.py                  Further cross-cutting suites (validation, pagination, discovery, ...)
 └── <family>/

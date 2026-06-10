@@ -18,7 +18,7 @@ callers are not blocked: every concrete still accepts ``locator`` as a fallback
 the extra revision slots the only difference is which slot name this family
 documents as primary. This resolves the ``code_build``
 line of the cross-family asymmetry catalog (see
-``kg/tests/test_kg_families_e2e.py::test_cross_family_asymmetry_catalog``); it is
+``kg/tests/test_kg_catalog_declarations.py::test_cross_family_asymmetry_catalog``); it is
 a recorded design decision, not an open follow-up.
 
 PROTOTYPE NOTE: ``CycloneDxSbomReader`` reads ``manifest_path`` (with

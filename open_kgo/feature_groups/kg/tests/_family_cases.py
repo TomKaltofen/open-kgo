@@ -1,37 +1,34 @@
-"""Holistic end-to-end usage smoke across all 9 KG families, plus cross-family gap diagnostics.
+"""Shared all-family usage registry and discovery helpers for the holistic KG suites.
 
-This module is deliberately *holistic* where the rest of the suite is per-connector.
-Every concrete already runs end-to-end on its own: ``kg_contract.py`` gives each of the
-18 concretes an inherited ``test_calculate_feature_runs_end_to_end`` that drives the real
-``mloda.run_all`` path. What did *not* exist before this module:
+This module is deliberately *holistic* where the rest of the suite is per-connector:
+the declarative ``CASES`` registry is a usage catalog (how a caller configures and
+queries each of the 9 families through ``mloda.run_all``), and the discovery helpers
+compute the shipped-connector lineup **independently** of that registry so the two
+can be cross-checked.
 
-1. A single readable place that shows **all 9 families' usage at once** (the declarative
-   ``CASES`` registry below doubles as a usage catalog: how a caller configures and queries
-   each family through ``mloda.run_all``).
-2. A floor that every family ships **at least two** concrete plugins. ``test_cross_group_contract``
-   only floored families at >= 1 concrete each; a family silently dropping back to a single
-   backend would not have tripped anything.
-3. An explicit **cross-family asymmetry catalog** that surfaces the structural inconsistencies
-   in the lineup (which families key on ``manifest_path`` vs ``locator``, which connector bakes
-   its fixture into the reader, which one builds its backend at test time) rather than hiding them.
+Three test modules consume it, one concern each:
 
-Gap-revealer wiring: discovery (``import_all_kg_readers`` + ``walk_subclasses``) is computed
-**independently** of the ``CASES`` registry. ``test_registry_covers_all_discovered_connectors``
-then asserts the two sets match, so adding a 19th connector module without a matching ``CASES``
-entry turns this module red. That cross-check is the prospective gap detector; the smoke itself
-is green today (all 18 work), so its value is the holistic view plus the diagnostics, not a
-present-day failure.
+- ``test_kg_usage_smoke.py``: drives every ``CASES`` entry through the real
+  ``mloda.run_all`` path.
+- ``test_kg_registry_integrity.py``: cross-checks the registry against discovery
+  (no gaps, no ghosts, >= 2 concretes per family, known tag vocabularies).
+- ``test_kg_catalog_declarations.py``: the source-slot declaration gate and the
+  printed cross-family asymmetry catalog.
+
+Gap-revealer wiring: discovery (``import_all_kg_readers`` + ``walk_subclasses``) is
+computed independently of ``CASES``, so adding a 19th connector module without a
+matching ``CASES`` entry turns ``test_registry_covers_all_discovered_connectors``
+red. That cross-check is the prospective gap detector; the smoke itself is green
+today (all 18 work), so its value is the holistic view plus the diagnostics.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 import kuzu
-import pytest
 
 from mloda.user import Feature, Options
 
@@ -60,7 +57,7 @@ from open_kgo.feature_groups.kg.tests._discovery import (
     import_all_kg_readers,
     walk_subclasses,
 )
-from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials, run_query
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 # Populate KgConnectorReaderBase.__subclasses__() by walking the whole kg package.
 # This is intentionally independent of the CASES registry below: it imports connector
@@ -78,12 +75,12 @@ def _fx(*parts: str) -> str:
 
 # Structural-tag vocabularies. A new connector whose shape is not one of these trips
 # test_asymmetry_catalog, forcing a conscious classification rather than a silent new shape.
-# _LOCATOR_KEYS doubles as the allowed vocabulary for SOURCE_SLOT declarations (None -> "baked"):
+# LOCATOR_KEYS doubles as the allowed vocabulary for SOURCE_SLOT declarations (None -> "baked"):
 # test_source_slot_declaration_matches_catalog fails any spelling outside it (issue #21).
-_INPUT_SHAPES = frozenset({"query_text", "operation", "lineage", "citation", "none"})
-_LOCATOR_KEYS = frozenset({"locator", "manifest_path", "baked"})
-_FIXTURE_SCOPES = frozenset({"family_tests", "baked", "built"})
-_SETUPS = frozenset({"static", "build"})
+INPUT_SHAPES = frozenset({"query_text", "operation", "lineage", "citation", "none"})
+LOCATOR_KEYS = frozenset({"locator", "manifest_path", "baked"})
+FIXTURE_SCOPES = frozenset({"family_tests", "baked", "built"})
+SETUPS = frozenset({"static", "build"})
 
 
 def _has_keys(*keys: str) -> Callable[[dict[str, Any]], bool]:
@@ -437,32 +434,14 @@ CASES: list[ConnectorCase] = [
 ]
 
 
-_CASE_IDS = [f"{c.family}:{c.connector_id}" for c in CASES]
+CASE_IDS = [f"{c.family}:{c.connector_id}" for c in CASES]
 
 
-@pytest.mark.parametrize("case", CASES, ids=_CASE_IDS)
-def test_family_usage_smoke(case: ConnectorCase, tmp_path: Path) -> None:
-    """Drive each connector through the real mloda.run_all path and assert a usable row shape.
-
-    Holistic counterpart to the per-connector ``test_calculate_feature_runs_end_to_end``:
-    one sweep, all 9 families, the same DataAccessCollection -> run_all -> KgPythonDictFramework
-    chain a caller uses. A regression in matching, validation, or framework adaptation that
-    happens to affect every family at once shows up here as a wall of red rather than one case.
-    """
-    slot = case.make_slot(tmp_path)
-    rows = run_query(case.connector_id, slot, case.feature)
-    assert isinstance(rows, list) and len(rows) >= 1, (
-        f"{case.connector_id}: expected >= 1 row from {case.feature.name!r}, got {rows!r}"
-    )
-    bad = [row for row in rows if not case.assert_row(row)]
-    assert not bad, f"{case.connector_id}: {len(bad)} row(s) failed the shape predicate; first bad row: {bad[0]!r}"
-
-
-def _is_production_connector(sub: type[KgConnectorReaderBase]) -> bool:
+def is_production_connector(sub: type[KgConnectorReaderBase]) -> bool:
     """True for a shipped concrete connector, False for test-only synthetic readers.
 
-    ``KgConnectorReaderBase.__subclasses__()`` is process-global, so by the time this
-    module runs other test modules have already registered synthetic readers
+    ``KgConnectorReaderBase.__subclasses__()`` is process-global, so by the time the
+    holistic modules run other test modules have already registered synthetic readers
     (``fake_connector_for_tests``, ``_b2_leaky_probe``, ...). Those live under a ``tests``
     package or have no real family; a production connector lives at
     ``open_kgo.feature_groups.kg.<family>.<module>`` with no ``tests`` path segment.
@@ -480,182 +459,16 @@ def _is_production_connector(sub: type[KgConnectorReaderBase]) -> bool:
     return family_of(sub) in family_subpackages()
 
 
-def _discovered_connector_ids() -> set[str]:
+def discovered_connector_ids() -> set[str]:
     """Every shipped concrete CONNECTOR_ID, computed via discovery (independent of CASES).
 
     Walks the class hierarchy populated by import_all_kg_readers(), then filters to
     production connectors, so a real connector module absent from CASES still shows up
     here (the coverage cross-check can fail) while test doubles do not leak in.
     """
-    return {sub.CONNECTOR_ID for sub in walk_subclasses(KgConnectorReaderBase) if _is_production_connector(sub)}
+    return {sub.CONNECTOR_ID for sub in walk_subclasses(KgConnectorReaderBase) if is_production_connector(sub)}
 
 
-def test_registry_covers_all_discovered_connectors() -> None:
-    """The CASES registry must cover exactly the concretes discovery finds: no gaps, no ghosts.
-
-    Add a 19th connector module without a CASES entry and ``missing`` is non-empty -> red.
-    This is the prospective gap detector; the smoke above only proves today's 18 work.
-    """
-    discovered = _discovered_connector_ids()
-    registered = {c.connector_id for c in CASES}
-    missing = discovered - registered
-    ghosts = registered - discovered
-    assert not missing, f"connectors with no end-to-end usage recipe in CASES: {sorted(missing)}"
-    assert not ghosts, f"CASES entries for connector_ids that no longer exist: {sorted(ghosts)}"
-
-
-def test_every_family_has_at_least_two_concretes() -> None:
-    """Floor each family at >= 2 concretes. The whole premise of this branch is "two backends per base".
-
-    ``test_cross_group_contract`` only floors at >= 1 per family; this is the >= 2 guard that
-    catches a family quietly regressing to a single concrete.
-    """
-    by_family: dict[str, set[str]] = defaultdict(set)
-    for sub in walk_subclasses(KgConnectorReaderBase):
-        if not _is_production_connector(sub):
-            continue
-        fam = family_of(sub)
-        assert fam is not None  # guaranteed by _is_production_connector; narrows for mypy
-        by_family[fam].add(sub.CONNECTOR_ID)
-
-    thin = {fam: sorted(ids) for fam, ids in by_family.items() if len(ids) < 2}
-    assert not thin, f"families with fewer than two concrete plugins: {thin}"
-
-    # Cross-check against the package layout: every connector subpackage must appear above,
-    # so a family that registers zero concretes (not just < 2) is also caught.
-    missing_families = family_subpackages() - set(by_family)
-    assert not missing_families, f"connector subpackages registering no concrete reader: {sorted(missing_families)}"
-
-
-def test_registry_tags_use_known_vocabularies() -> None:
-    """Every CASES entry classifies into the known structural vocabularies.
-
-    A connector whose invocation shape, fixture sourcing, or setup style is not one of the
-    documented kinds trips this, forcing whoever adds it to extend the vocabulary consciously
-    instead of introducing an unlabelled new shape that the asymmetry catalog would miss.
-    """
-    for case in CASES:
-        assert case.input_shape in _INPUT_SHAPES, f"{case.connector_id}: unknown input_shape {case.input_shape!r}"
-        assert case.locator_key in _LOCATOR_KEYS, f"{case.connector_id}: unknown locator_key {case.locator_key!r}"
-        assert case.fixture_scope in _FIXTURE_SCOPES, (
-            f"{case.connector_id}: unknown fixture_scope {case.fixture_scope!r}"
-        )
-        assert case.setup in _SETUPS, f"{case.connector_id}: unknown setup {case.setup!r}"
-
-
-def _declared_locator_tag(reader: type[KgConnectorReaderBase]) -> str:
+def declared_locator_tag(reader: type[KgConnectorReaderBase]) -> str:
     """Map a reader's ``SOURCE_SLOT`` declaration onto the catalog's ``locator_key`` vocabulary."""
     return "baked" if reader.SOURCE_SLOT is None else reader.SOURCE_SLOT
-
-
-def test_source_slot_declaration_matches_catalog() -> None:
-    """Every connector's declared source slot is a known spelling, and CASES tags mirror it.
-
-    The asserting half of issue #21 (the class-time half is
-    ``KgConnectorReaderBase._validate_source_slot``). Two gates:
-
-    1. The ``SOURCE_SLOT`` declaration of every discovered production connector
-       (mapped onto the catalog vocabulary via ``None`` -> ``"baked"``) must be
-       in ``_LOCATOR_KEYS``. A connector introducing a fourth spelling goes red
-       here until the vocabulary is consciously extended, instead of slipping
-       into the lineup unnoticed.
-    2. Each ``CASES`` entry's hand-written ``locator_key`` tag must equal the
-       reader's declaration, so the asymmetry catalog's locator dimension is
-       checked data rather than prose a human keeps in sync.
-    """
-    readers_by_id = {
-        sub.CONNECTOR_ID: sub for sub in walk_subclasses(KgConnectorReaderBase) if _is_production_connector(sub)
-    }
-
-    unknown = {
-        connector_id: _declared_locator_tag(sub)
-        for connector_id, sub in readers_by_id.items()
-        if _declared_locator_tag(sub) not in _LOCATOR_KEYS
-    }
-    assert not unknown, (
-        f"connectors declaring a SOURCE_SLOT spelling outside the known vocabulary {sorted(_LOCATOR_KEYS)}: "
-        f"{unknown}. Extend _LOCATOR_KEYS consciously (and explain the new spelling in the asymmetry "
-        f"catalog docstring) or align the connector with an existing slot name."
-    )
-
-    mismatched: list[str] = []
-    for case in CASES:
-        reader = readers_by_id.get(case.connector_id)
-        if reader is None:
-            # A CASES entry naming a connector discovery cannot find is a ghost;
-            # test_registry_covers_all_discovered_connectors reports that
-            # readably, so skip it here rather than dying on a KeyError.
-            continue
-        declared = _declared_locator_tag(reader)
-        if case.locator_key != declared:
-            mismatched.append(
-                f"{case.connector_id}: CASES tags locator_key={case.locator_key!r} but the reader declares {declared!r}"
-            )
-    assert not mismatched, "CASES locator_key tags drifted from SOURCE_SLOT declarations:\n" + "\n".join(mismatched)
-
-
-def test_cross_family_asymmetry_catalog() -> None:
-    """Emit a readable catalog of where the family lineup is NOT uniform, and assert it is consistent.
-
-    This is the diagnostic half of "reveal gaps": rather than freezing today's counts with a brittle
-    ``assert build == {"kuzu_cypher"}``, it prints the asymmetries so they are visible in ``pytest -s``
-    output and in any review. The only assertion guards against duplicate ``connector_id`` entries in
-    ``CASES``: each case contributes exactly one tag per dimension, so a connector_id can only show up
-    twice in a dimension's buckets if it was registered twice. The value here is the printed catalog,
-    not a gate.
-
-    Asymmetries surfaced (printed, not asserted):
-      - ``code_build`` keys credentials on ``manifest_path`` while the other eight families use ``locator``.
-        INTENTIONAL and documented (resolved per issue #18): the family base deliberately renames and
-        enriches the address slot (``manifest_path`` travels with ``commit_sha`` / ``branch`` /
-        ``language_code``, with ``locator`` kept as a fallback). See the DESIGN NOTE in
-        ``kg/code_build/__init__.py``. It stays in the catalog so the map is complete, not because it is an
-        open follow-up.
-      - ``saas_authz.in_process_tuple_store`` takes no fixture credential at all: its fixture is baked into
-        the reader (``_FIXTURE_PATH``), so it is the one connector you cannot repoint without code.
-        INTENTIONAL and documented (resolved per issue #19): it deliberately trades a configurable
-        ``locator`` for a closed, matcher-safe ``tenant`` enum, and the sibling ``paginated_tuple_store``
-        is this family's configurable concrete. See ``kg/saas_authz/in_process_tuple_store.py``.
-      - ``network_pg.kuzu_cypher`` is the only connector that builds its backend at test time rather than
-        reading a committed fixture. INTENTIONAL and documented (resolved per issue #20): Kuzu's on-disk
-        store is a binary, version-coupled format, so a committed fixture would be fragile across ``kuzu``
-        upgrades; the sibling ``grand_cypher`` reads a committed ``.gml``, so the family shows both shapes.
-        See the DESIGN NOTE in ``kg/network_pg/tests/test_kuzu_cypher.py``.
-
-    Since issue #21 the ``credential locator key`` dimension is declared data, not prose: each reader
-    carries a ``SOURCE_SLOT`` declaration (the "Source-slot convention" in ``kg/base.py``), enforced at
-    class definition by ``_validate_source_slot`` and gated suite-wide by
-    ``test_source_slot_declaration_matches_catalog`` above. This catalog keeps printing the dimension so
-    the map stays complete in one place.
-    """
-    by_input: dict[str, list[str]] = defaultdict(list)
-    by_locator: dict[str, list[str]] = defaultdict(list)
-    by_scope: dict[str, list[str]] = defaultdict(list)
-    by_setup: dict[str, list[str]] = defaultdict(list)
-    for case in CASES:
-        by_input[case.input_shape].append(case.connector_id)
-        by_locator[case.locator_key].append(case.connector_id)
-        by_scope[case.fixture_scope].append(case.connector_id)
-        by_setup[case.setup].append(case.connector_id)
-
-    lines = ["", "=== KG cross-family asymmetry catalog ==="]
-    for title, bucket in (
-        ("invocation shape", by_input),
-        ("credential locator key", by_locator),
-        ("fixture sourcing", by_scope),
-        ("backend setup", by_setup),
-    ):
-        lines.append(f"\n{title}:")
-        for key in sorted(bucket):
-            lines.append(f"  {key:<14} ({len(bucket[key]):>2}): {', '.join(sorted(bucket[key]))}")
-    print("\n".join(lines))  # captured by pytest; visible with -s or on failure
-
-    # The one genuine invariant: no duplicate connector_id entries in CASES. Each case contributes
-    # exactly one tag per dimension, so a repeated connector_id is the only way a dimension's
-    # buckets can contain the same id twice.
-    for dimension, bucket in (("input", by_input), ("locator", by_locator), ("scope", by_scope), ("setup", by_setup)):
-        flat = [cid for ids in bucket.values() for cid in ids]
-        assert len(set(flat)) == len(flat), (
-            f"{dimension}: duplicate connector_id entries in CASES (a connector_id appears more than once): "
-            f"{sorted(cid for cid in set(flat) if flat.count(cid) > 1)}"
-        )
