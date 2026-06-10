@@ -72,3 +72,17 @@ class TestPropertySpecInvariants:
         assert emitted["allowed_values"] == ("a", "b")
         with pytest.raises(ValueError, match="not in the"):
             property_spec("Tuple enum.", strict=True, allowed_values=("a", "b"), default="z")
+
+    def test_generator_allowed_values_materialized(self) -> None:
+        """A one-shot iterable is materialized, not emitted exhausted (codex review finding).
+
+        Without materialization, ``__post_init__`` consumes the generator and
+        ``to_mapping`` would emit a dead iterator that behaves like an empty
+        enum, silently rejecting every value downstream.
+        """
+        emitted = property_spec("Generator enum.", strict=True, allowed_values=(v for v in ("a", "b")), default="a")
+        assert emitted["allowed_values"] == ("a", "b")
+        # An exhausted-empty generator is rejected like any other empty allowed set.
+        no_values: tuple[str, ...] = ()
+        with pytest.raises(ValueError, match="non-empty allowed_values"):
+            property_spec("Empty generator.", strict=True, allowed_values=(v for v in no_values))

@@ -45,6 +45,12 @@ class PropertySpec:
     context: bool = True
 
     def __post_init__(self) -> None:
+        if self.allowed_values is not None and not isinstance(self.allowed_values, Mapping):
+            # Materialize one-shot iterables (e.g. a generator) up front: the
+            # emptiness and default-membership checks below iterate the value,
+            # and an exhausted iterator would otherwise be emitted into the
+            # spec dict and behave like an empty enum that rejects everything.
+            object.__setattr__(self, "allowed_values", tuple(self.allowed_values))
         if self.strict and not self.allowed_values:
             raise ValueError(
                 f"PropertySpec({self.explanation!r}): strict=True requires a non-empty allowed_values; "
