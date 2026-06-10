@@ -1054,8 +1054,11 @@ class ParamReader(KgConnectorReaderBase):
     def _reject_stripped_params(cls, features: FeatureSet) -> None:
         """Raise if any family-declared but concrete-stripped param is set on the feature.
 
-        Scope is intentionally narrow: only checks ``feature.options.context``
-        (where per-call params live), not ``feature.options.group`` (mloda's
+        This is the per-call enforcement of option 1 of the "Honest credential
+        surface" rule (see this module's docstring): a param the concrete
+        dropped from ``PARAMS_MAPPING`` must not be silently accepted. Scope is
+        intentionally narrow: only checks ``feature.options.context`` (where
+        per-call params live), not ``feature.options.group`` (mloda's
         feature-grouping concept, out of scope for the per-call surface lie
         check). Unrelated keys in ``feature.options.context`` pass through;
         only family-declared keys this concrete dropped count as surface lies.

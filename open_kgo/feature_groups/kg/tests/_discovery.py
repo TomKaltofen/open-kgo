@@ -223,6 +223,12 @@ def reader_string_literals(reader_class: type[KgConnectorReaderBase]) -> set[str
     which is not parseable on its own. ``getsource`` failures (C-defined or
     dynamically built callables) and parse failures are skipped defensively;
     in practice every reader method is plain Python with retrievable source.
+    One caveat from the dedent: a method whose body contains a flush-left
+    multi-line string literal (continuation lines less indented than the
+    ``def``) defeats ``dedent`` and fails to parse, dropping that method's
+    literals. The failure mode is a false red build (a key read only there
+    would be flagged), never a silent miss, so it surfaces loudly; keep reader
+    key-reads out of flush-left multi-line strings. No shipped method hits it.
     """
     prefix = f"{_KG_PACKAGE_NAME}."
     literals: set[str] = set()
