@@ -26,6 +26,7 @@ import kuzu
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.fixtures import load_kuzu_database
 from open_kgo.feature_groups.kg.network_pg.base import (
     NetworkPropertyGraphFeatureGroup,
@@ -59,9 +60,8 @@ class KuzuCypherReader(NetworkPropertyGraphReader):
         return kuzu.Connection(db)
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        conn = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        conn = connection
 
         query_text = cls.build_query(features)
         result_obj = conn.execute(query_text)

@@ -29,13 +29,14 @@ from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.citation_rest.base import (
     CitationRestFeatureGroup,
     CitationRestReader,
 )
 from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
-from open_kgo.feature_groups.kg.mixins import parse_offset_cursor, parse_page_size
+from open_kgo.feature_groups.kg.mixins import cursor_page_slice
 
 
 class PaginatedCitationReader(CitationRestReader):
@@ -61,9 +62,8 @@ class PaginatedCitationReader(CitationRestReader):
         return load_json_fixture(cls.CONNECTOR_ID, slot["locator"])
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        catalog = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        catalog = connection
         params = cls.build_params(features, ctx.slot)
 
         # stable_id presence is enforced by REQUIRED_PARAMS inside build_params
@@ -76,8 +76,6 @@ class PaginatedCitationReader(CitationRestReader):
                 f"got {type(depth).__name__} {depth!r}."
             )
         entity_type = params.get("entity_type")
-        offset = parse_offset_cursor(cls.CONNECTOR_ID, params.get("cursor_token"))
-        page_size = parse_page_size(cls.CONNECTOR_ID, ctx.slot.get("page_size"), 100)
 
         # BFS the citation graph from stable_id out to ``depth`` hops.
         collected: list[str] = []
@@ -100,8 +98,14 @@ class PaginatedCitationReader(CitationRestReader):
         collected.sort()
 
         # Cursor page slice, bounded by result_limit.
-        page_ids = collected[offset : offset + page_size]
-        return [copy_cached_row(catalog[cid]) for cid in page_ids[: ctx.result_limit]]
+        page_ids = cursor_page_slice(
+            cls.CONNECTOR_ID,
+            collected,
+            cursor_token=params.get("cursor_token"),
+            page_size_value=ctx.slot.get("page_size"),
+            result_limit=ctx.result_limit,
+        )
+        return [copy_cached_row(catalog[cid]) for cid in page_ids]
 
 
 class PaginatedCitationFeatureGroup(CitationRestFeatureGroup):

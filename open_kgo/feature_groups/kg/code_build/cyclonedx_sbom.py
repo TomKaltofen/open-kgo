@@ -18,6 +18,7 @@ from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.code_build.base import (
     CodeBuildFeatureGroup,
     CodeBuildReader,
@@ -46,9 +47,8 @@ class CycloneDxSbomReader(CodeBuildReader):
         return load_json_fixture(cls.CONNECTOR_ID, manifest_path)
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        sbom = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        sbom = connection
 
         # Slice to result_limit *before* copying so we only copy the rows we
         # emit; copy_cached_row keeps the shared cached SBOM read-only when a

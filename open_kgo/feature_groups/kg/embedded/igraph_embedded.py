@@ -31,6 +31,7 @@ import igraph
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.embedded.base import (
     EmbeddedGraphFeatureGroup,
     EmbeddedGraphReader,
@@ -108,9 +109,8 @@ class IGraphEmbeddedReader(EmbeddedGraphReader):
         return loader(str(locator))
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        graph = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        graph = connection
 
         params = cls.build_params(features, ctx.slot)
         op = params["operation"]

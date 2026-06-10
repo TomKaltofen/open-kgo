@@ -19,7 +19,7 @@ defaults; lineage / code_build use per-call params).
 from __future__ import annotations
 
 import re
-from typing import Any, ClassVar, Mapping
+from typing import Any, ClassVar, Mapping, Sequence, TypeVar
 
 from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
 from open_kgo.feature_groups.kg.spec import property_spec
@@ -99,6 +99,38 @@ def parse_page_size(connector_id: str, value: Any, default: int) -> int:
             f"got {type(value).__name__} {value!r}."
         )
     return value
+
+
+_ItemT = TypeVar("_ItemT")
+
+
+def cursor_page_slice(
+    connector_id: str,
+    items: Sequence[_ItemT],
+    *,
+    cursor_token: Any,
+    page_size_value: Any,
+    result_limit: int,
+    default_page_size: int = 100,
+) -> list[_ItemT]:
+    """Shared cursor-pagination epilogue: decode the token, guard the size, slice the page.
+
+    The two cursor-paginating concretes (``PaginatedCitationReader``,
+    ``PaginatedTupleStoreReader``) used to spell the same three lines each:
+    ``parse_offset_cursor`` + ``parse_page_size`` + the
+    ``[offset : offset + page_size][:result_limit]`` double slice. Centralising
+    the epilogue keeps the token convention, the size guard, and the
+    result-limit cap in one place next to ``PaginationMixin``.
+
+    ``items`` must already be deterministically ordered (both call sites sort
+    first); the positional ``offset:<N>`` token indexes into that order, so an
+    unsorted input would make a saved token return arbitrary rows. The caller
+    passes the raw ``cursor_token`` param and ``page_size`` slot values; the
+    typed-error guards in the two parse helpers fire from here unchanged.
+    """
+    offset = parse_offset_cursor(connector_id, cursor_token)
+    page_size = parse_page_size(connector_id, page_size_value, default_page_size)
+    return list(items[offset : offset + page_size][:result_limit])
 
 
 _ENTITY_FILTER_KEYS: dict[str, Any] = {

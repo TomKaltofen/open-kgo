@@ -37,9 +37,10 @@ from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.errors import FixtureLoadError, InvalidCredentialShape, UnknownTenantError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
-from open_kgo.feature_groups.kg.mixins import parse_offset_cursor, parse_page_size
+from open_kgo.feature_groups.kg.mixins import cursor_page_slice
 from open_kgo.feature_groups.kg.saas_authz.base import (
     SaasAuthzFeatureGroup,
     SaasAuthzReader,
@@ -191,9 +192,8 @@ class PaginatedTupleStoreReader(SaasAuthzReader):
         return _validate_tuples(cls.CONNECTOR_ID, locator, tenant, stores[tenant])
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        all_tuples = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        all_tuples = connection
         # Engages PaginationMixin._validate_cross_layer (cursor_token requires a
         # cursor-family pagination_style, which this concrete pins).
         params = cls.build_params(features, ctx.slot)
@@ -202,8 +202,6 @@ class PaginatedTupleStoreReader(SaasAuthzReader):
         entity_type = ctx.slot.get("entity_type")
         relationship_type = ctx.slot.get("relationship_type")
         expand_paths = _validate_expand_paths(cls.CONNECTOR_ID, ctx.slot.get("expand_paths"))
-        offset = parse_offset_cursor(cls.CONNECTOR_ID, params.get("cursor_token"))
-        page_size = parse_page_size(cls.CONNECTOR_ID, ctx.slot.get("page_size"), 100)
 
         filtered = [
             t
@@ -213,7 +211,13 @@ class PaginatedTupleStoreReader(SaasAuthzReader):
         expanded = _expand_usersets(filtered, all_tuples, expand_paths)
         expanded.sort()
 
-        page = expanded[offset : offset + page_size][: ctx.result_limit]
+        page = cursor_page_slice(
+            cls.CONNECTOR_ID,
+            expanded,
+            cursor_token=params.get("cursor_token"),
+            page_size_value=ctx.slot.get("page_size"),
+            result_limit=ctx.result_limit,
+        )
         return [{"object_type": ot, "object_id": oid, "relation": rel, "user": user} for ot, oid, rel, user in page]
 
 

@@ -852,6 +852,40 @@ class KgConnectorReaderBase(ReadDB):
         )
 
     @classmethod
+    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        """Template method: prepare the ``LoadContext``, open the connection, delegate to ``_load_rows``.
+
+        Every concrete used to open its ``load_data`` with the same two lines
+        (``ctx = cls._prepare_load(data_access)`` then
+        ``cls._connect_from_slot(ctx.slot)``); the prologue now lives here
+        once and concretes implement ``_load_rows`` only. ``ReadDB.load``
+        dispatches into this hook unchanged, so direct callers and the
+        matcher path see identical behavior.
+
+        ``data_access=None`` raises ``NotImplementedError`` from
+        ``_wrap_credentials`` (inside ``_prepare_load``), preserving the
+        scoped-access probe contract documented there.
+        """
+        ctx = cls._prepare_load(data_access)
+        connection = cls._connect_from_slot(ctx.slot)
+        return cls._load_rows(ctx, connection, features)
+
+    @classmethod
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        """Produce native rows from the prepared context and opened connection.
+
+        The concrete hook behind the ``load_data`` template. ``connection``
+        is whatever this concrete's ``_connect_from_slot`` returned (a parsed
+        manifest dict, an ``rdflib.Graph``, a ``kuzu.Connection``, a fixture
+        ``Path``, ...); concretes alias it to a domain name on the first
+        line. Per-call inputs are read here via ``build_query(features)``
+        (QueryReader concretes) or ``build_params(features, ctx.slot)``
+        (ParamReader concretes). Must return ``list[dict[str, Any]]``; the
+        base ``load`` enforces that shape after ``ReadDB.load`` returns.
+        """
+        raise NotImplementedError
+
+    @classmethod
     def connect(cls, credentials: Any) -> Any:
         """Public ReadDB hook: extract + validate the slot, then dispatch to ``_connect_from_slot``.
 

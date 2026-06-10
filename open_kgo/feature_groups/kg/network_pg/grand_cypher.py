@@ -51,6 +51,7 @@ from grandcypher import GrandCypher
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.errors import FixtureLoadError
 from open_kgo.feature_groups.kg.fixtures import _rejected_scheme
 from open_kgo.feature_groups.kg.network_pg.base import (
@@ -145,9 +146,8 @@ class GrandCypherReader(NetworkPropertyGraphReader):
         return graph
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        graph = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        graph = connection
 
         query_text = cls.build_query(features)
         # GrandCypher's constructor ``limit`` is best-effort only: an in-query

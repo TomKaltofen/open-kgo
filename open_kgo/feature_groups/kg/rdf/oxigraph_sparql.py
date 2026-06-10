@@ -36,6 +36,7 @@ import pyoxigraph
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.fixtures import _rejected_scheme, load_oxigraph_store
 from open_kgo.feature_groups.kg.rdf.base import RdfSparqlFeatureGroup, RdfSparqlReader
 
@@ -87,10 +88,9 @@ class OxigraphSparqlReader(RdfSparqlReader):
         return store
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
         """Run the SPARQL query and return up to result_limit rows as list-of-dicts."""
-        ctx = cls._prepare_load(data_access)
-        store = cls._connect_from_slot(ctx.slot)
+        store = connection
 
         query_text = cls.build_query(features)
         # use_default_graph_as_union: triples loaded from quad-bearing formats

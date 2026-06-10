@@ -64,7 +64,7 @@ from typing import Any, ClassVar, Mapping
 from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
-from open_kgo.feature_groups.kg.base import narrow_property_mapping
+from open_kgo.feature_groups.kg.base import LoadContext, narrow_property_mapping
 from open_kgo.feature_groups.kg.errors import FixtureLoadError, UnknownTenantError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
 from open_kgo.feature_groups.kg.saas_authz.base import (
@@ -164,9 +164,8 @@ class InProcessTupleStoreReader(SaasAuthzReader):
         return _validate_tuples(cls.CONNECTOR_ID, fixture, tenant, stores[tenant])
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        tuples = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        tuples = connection
         # Engages PaginationMixin._validate_cross_layer: this concrete keeps
         # cursor_token in PARAMS_MAPPING (no _STRIPPED_PARAMS narrowing), so
         # it's the one composer where the cursor_token / pagination_style
