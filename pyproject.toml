@@ -87,7 +87,9 @@ strict = true
 ignore_missing_imports = true
 namespace_packages = true
 explicit_package_bases = true
-exclude = ["demo/", "build/"]
+# Anchored: an unanchored "build/" also matches open_kgo/.../code_build/,
+# silently dropping that package from the repo-wide mypy run.
+exclude = ["^demo/", "^build/"]
 
 [tool.bandit]
 exclude_dirs = [".tox", ".venv", "tests", "demo"]
