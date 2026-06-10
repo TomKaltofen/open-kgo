@@ -1,10 +1,17 @@
 name: Tests
 
+# Trigger notes:
+# - In branch filters, "*" does NOT match "/", so the previous push filter
+#   ["*"] silently matched only single-segment names (in practice: main) and
+#   never any feat/... working branch.
+# - pull_request filters on the PR's BASE branch; restricting it to main meant
+#   stacked PRs (base = another feature branch) ran no checks at all.
+# Fix: run on every PR regardless of base, and keep push runs for main only
+# (a PR branch is covered by its pull_request run; push would duplicate it).
 on:
   push:
-    branches: ["*"]
-  pull_request:
     branches: [main]
+  pull_request:
   workflow_dispatch:  # Allow manual triggering
 
 # Least-privilege token: these jobs only read the repo to run tests. Declared
