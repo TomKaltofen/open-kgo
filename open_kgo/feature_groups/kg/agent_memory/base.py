@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from open_kgo.feature_groups.kg.base import (
-    KgConnectorFeatureGroupBase,
-    QueryReader,
-    compose_property_mapping,
-)
+from open_kgo.feature_groups.kg.base import KgConnectorFeatureGroupBase, QueryReader
 from open_kgo.feature_groups.kg.mixins import PaginationMixin
 from open_kgo.feature_groups.kg.spec import property_spec
 
@@ -51,42 +47,37 @@ _MEMORY_SCOPE_PROPERTY_MAPPING: dict[str, Any] = {
     name: property_spec(explanation, default=default) for name, explanation, default in _MEMORY_SCOPE_SPECS
 }
 
+_FAMILY_PROPERTIES: dict[str, Any] = {
+    **_MEMORY_SCOPE_PROPERTY_MAPPING,
+    "reference_time": property_spec(
+        "Bi-temporal reference time (ISO 8601).",
+    ),
+    "valid_at_range": property_spec(
+        "[start, end] for valid_at filter.",
+        default=(),
+    ),
+    "invalid_at_range": property_spec(
+        "[start, end] for invalid_at filter.",
+        default=(),
+    ),
+    "retrieval_mode": property_spec(
+        "Retrieval strategy used to score candidate memories.",
+        strict=True,
+        allowed_values=_RETRIEVAL_MODES,
+        default="lexical",
+    ),
+    "mmr_lambda": property_spec(
+        "MMR lambda for hybrid retrieval blend (0.0-1.0).",
+        default=0.5,
+    ),
+    "threshold": property_spec(
+        "Similarity threshold (0.0-1.0).",
+        default=0.0,
+    ),
+}
 
-class AgentMemoryReader(PaginationMixin, QueryReader):
-    PROPERTY_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
-        QueryReader.PROPERTY_MAPPING,
-        PaginationMixin.PROPERTY_MAPPING_DELTA,
-        _MEMORY_SCOPE_PROPERTY_MAPPING,
-        {
-            "reference_time": property_spec(
-                "Bi-temporal reference time (ISO 8601).",
-            ),
-            "valid_at_range": property_spec(
-                "[start, end] for valid_at filter.",
-                default=(),
-            ),
-            "invalid_at_range": property_spec(
-                "[start, end] for invalid_at filter.",
-                default=(),
-            ),
-            "retrieval_mode": property_spec(
-                "Retrieval strategy used to score candidate memories.",
-                strict=True,
-                allowed_values=_RETRIEVAL_MODES,
-                default="lexical",
-            ),
-            "mmr_lambda": property_spec(
-                "MMR lambda for hybrid retrieval blend (0.0-1.0).",
-                default=0.5,
-            ),
-            "threshold": property_spec(
-                "Similarity threshold (0.0-1.0).",
-                default=0.0,
-            ),
-        },
-        context="AgentMemoryReader",
-    )
 
+class AgentMemoryReader(PaginationMixin, QueryReader, family_properties=_FAMILY_PROPERTIES):
     # Honest surface (option 3, see base.py): forward-compat GraphRAG menu the
     # in-process concretes don't read (alternate scope aliases, bi-temporal and
     # scoring knobs, pagination), reserved for future backends (Mem0, Letta,

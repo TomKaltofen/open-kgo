@@ -4,16 +4,21 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from open_kgo.feature_groups.kg.base import (
-    KgConnectorFeatureGroupBase,
-    ParamReader,
-    compose_property_mapping,
-)
+from open_kgo.feature_groups.kg.base import KgConnectorFeatureGroupBase, ParamReader
 from open_kgo.feature_groups.kg.mixins import PaginationMixin
 from open_kgo.feature_groups.kg.spec import property_spec
 
 
-_PER_CALL_KEYS: dict[str, Any] = {
+_FAMILY_PROPERTIES: dict[str, Any] = {
+    "species_prefix": property_spec(
+        "Species prefix (e.g. HSA for human Reactome IDs).",
+    ),
+    "dataset_version": property_spec(
+        "Release version pin (e.g. 'v90' for Reactome).",
+    ),
+}
+
+_FAMILY_PARAMS: dict[str, Any] = {
     "entity_type": property_spec(
         "Resource type (e.g. 'pathway', 'work').",
     ),
@@ -27,27 +32,9 @@ _PER_CALL_KEYS: dict[str, Any] = {
 }
 
 
-class CitationRestReader(PaginationMixin, ParamReader):
-    PROPERTY_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
-        ParamReader.PROPERTY_MAPPING,
-        PaginationMixin.PROPERTY_MAPPING_DELTA,
-        {
-            "species_prefix": property_spec(
-                "Species prefix (e.g. HSA for human Reactome IDs).",
-            ),
-            "dataset_version": property_spec(
-                "Release version pin (e.g. 'v90' for Reactome).",
-            ),
-        },
-        context="CitationRestReader",
-    )
-
-    PARAMS_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
-        PaginationMixin.PARAMS_MAPPING_DELTA,
-        _PER_CALL_KEYS,
-        context="CitationRestReader.PARAMS_MAPPING",
-    )
-
+class CitationRestReader(
+    PaginationMixin, ParamReader, family_properties=_FAMILY_PROPERTIES, family_params=_FAMILY_PARAMS
+):
     REQUIRED_PARAMS: ClassVar[tuple[tuple[str, ...], ...]] = (("stable_id",),)
 
     # Honest surface (option 3, see base.py): reproducibility/scoping pins the

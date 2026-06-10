@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from open_kgo.feature_groups.kg.base import (
-    KgConnectorFeatureGroupBase,
-    QueryReader,
-    compose_property_mapping,
-)
+from open_kgo.feature_groups.kg.base import KgConnectorFeatureGroupBase, QueryReader
 from open_kgo.feature_groups.kg.spec import property_spec
 
 
@@ -25,30 +21,26 @@ _TRANSACTION_MODE: dict[str, str] = {
     "schema": "Schema-mutating transaction (TypeDB SCHEMA mode).",
 }
 
+_FAMILY_PROPERTIES: dict[str, Any] = {
+    "dataset": property_spec(
+        "Database / graph / space name on the endpoint.",
+    ),
+    "read_consistency": property_spec(
+        "Read consistency level the connector should request.",
+        strict=True,
+        allowed_values=_READ_CONSISTENCY,
+        default="read",
+    ),
+    "transaction_mode": property_spec(
+        "Transaction handling mode used by the engine.",
+        strict=True,
+        allowed_values=_TRANSACTION_MODE,
+        default="auto",
+    ),
+}
 
-class NetworkPropertyGraphReader(QueryReader):
-    PROPERTY_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
-        QueryReader.PROPERTY_MAPPING,
-        {
-            "dataset": property_spec(
-                "Database / graph / space name on the endpoint.",
-            ),
-            "read_consistency": property_spec(
-                "Read consistency level the connector should request.",
-                strict=True,
-                allowed_values=_READ_CONSISTENCY,
-                default="read",
-            ),
-            "transaction_mode": property_spec(
-                "Transaction handling mode used by the engine.",
-                strict=True,
-                allowed_values=_TRANSACTION_MODE,
-                default="auto",
-            ),
-        },
-        context="NetworkPropertyGraphReader",
-    )
 
+class NetworkPropertyGraphReader(QueryReader, family_properties=_FAMILY_PROPERTIES):
     # Honest surface (option 3, see base.py): ``dataset`` names a database on a
     # networked endpoint; both concretes run over a single in-memory/embedded
     # graph with no such concept. Reserved for a networked concrete (Neo4j).
