@@ -28,7 +28,6 @@ as accepted-but-no-op until a concrete owns the corresponding store.
 
 from __future__ import annotations
 
-from collections import deque
 from typing import Any, ClassVar, Mapping
 
 import networkx as nx
@@ -43,6 +42,7 @@ from open_kgo.feature_groups.kg.agent_memory.shared import build_memory_graph, v
 from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.errors import UnknownMemoryScopeError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
+from open_kgo.feature_groups.kg.traversal import bfs_collect_ids
 
 
 class GraphWalkMemoryReader(AgentMemoryReader):
@@ -94,22 +94,17 @@ class GraphWalkMemoryReader(AgentMemoryReader):
         graph = connection
         seed = cls.build_query(features)
 
-        if seed not in graph:
-            return []
-
-        rows: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        queue: deque[str] = deque([seed])
-        # BFS over reachable memories; short-circuits at result_limit so the cap
-        # bounds the walk rather than slicing a fully-expanded reachable set.
-        while queue and len(rows) < ctx.result_limit:
-            node_id = queue.popleft()
-            if node_id in seen:
-                continue
-            seen.add(node_id)
-            rows.append({"id": node_id, **graph.nodes[node_id]})
-            queue.extend(successor for successor in graph.successors(node_id) if successor not in seen)
-        return rows
+        # BFS over reachable memories (depth-unbounded); short-circuits at
+        # result_limit so the cap bounds the walk rather than slicing a
+        # fully-expanded reachable set. A seed absent from the graph yields
+        # an empty walk (the contains gate skips it without expanding).
+        collected = bfs_collect_ids(
+            lambda node_id: node_id in graph,
+            graph.successors,
+            seed,
+            max_nodes=ctx.result_limit,
+        )
+        return [{"id": node_id, **graph.nodes[node_id]} for node_id in collected]
 
 
 class GraphWalkMemoryFeatureGroup(AgentMemoryFeatureGroup):

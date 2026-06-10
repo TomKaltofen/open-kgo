@@ -38,6 +38,7 @@ from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.errors import FixtureLoadError
 from open_kgo.feature_groups.kg.fixtures import load_json_fixture
 from open_kgo.feature_groups.kg.lineage.base import LineageFeatureGroup, LineageReader
+from open_kgo.feature_groups.kg.traversal import bfs_frontier_walk
 
 
 def _build_dataset_graph(
@@ -112,47 +113,20 @@ def _walk(
 ) -> list[dict[str, Any]]:
     """BFS along ``edge_map`` from ``start`` up to ``depth`` hops; emit dataset rows.
 
-    Aborts once ``remaining`` NEW rows have been emitted so ``result_limit``
-    bounds the work walked, not just the output sliced (mirrors
-    ``DbtManifestReader``).
-
-    Traversal and emission are deduplicated separately. A local ``visited``
-    set (per walk) terminates cycles and dedups the frontier. ``emitted``,
-    when given, is caller-owned and mutated in place: ``load_data`` passes ONE
-    set (seeded with the start node) to both directional walks so a node that
-    is both upstream and downstream of the start (a cycle through the start)
-    is emitted once under ``lineage_direction=BOTH`` and bills
-    ``result_limit`` once. An already-emitted overlap node is still EXPANDED
-    by the second walk (it costs no budget), so nodes reachable in the second
-    direction only through it are not dropped. ``emitted=None`` builds a
-    fresh set seeded with ``start`` (single-direction semantics, mirrors the
-    dbt sibling's ``_walk_with_node``).
+    Thin binding over ``bfs_frontier_walk`` (see ``kg.traversal`` for the
+    budget and dedup semantics): supplies the derived dataset edge map
+    (neighbours sorted for a deterministic frontier order, since the edge
+    sets are unordered) and the ``{"name": ..., "namespace": ...}`` row
+    shape.
     """
-    if depth <= 0 or remaining <= 0:
-        return []
-    if emitted is None:
-        emitted = {start}
-    visited: set[str] = {start}
-    out: list[dict[str, Any]] = []
-    frontier: list[str] = [start]
-    for _ in range(depth):
-        next_frontier: list[str] = []
-        for node in frontier:
-            for neighbour in sorted(edge_map.get(node, set())):
-                if neighbour in visited:
-                    continue
-                visited.add(neighbour)
-                next_frontier.append(neighbour)
-                if neighbour in emitted:
-                    continue
-                emitted.add(neighbour)
-                out.append({"name": neighbour, "namespace": namespaces.get(neighbour, "")})
-                if len(out) >= remaining:
-                    return out
-        if not next_frontier:
-            break
-        frontier = next_frontier
-    return out
+    return bfs_frontier_walk(
+        lambda node: sorted(edge_map.get(node, set())),
+        start,
+        depth=depth,
+        remaining=remaining,
+        emit=lambda name: {"name": name, "namespace": namespaces.get(name, "")},
+        emitted=emitted,
+    )
 
 
 class OpenLineageReader(LineageReader):

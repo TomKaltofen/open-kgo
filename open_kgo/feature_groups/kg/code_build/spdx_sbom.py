@@ -32,6 +32,7 @@ from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
 from open_kgo.feature_groups.kg.mixins import TraversalMixin
 from open_kgo.feature_groups.kg.spec import property_spec
+from open_kgo.feature_groups.kg.traversal import bfs_frontier_walk
 from open_kgo.feature_groups.kg.validation import parse_bounded_int
 
 
@@ -77,52 +78,26 @@ def _walk_packages(
 ) -> list[dict[str, Any]]:
     """BFS along ``edge_map`` from ``start`` up to ``depth`` hops; emit package rows.
 
-    Aborts once ``remaining`` NEW rows have been emitted so ``result_limit``
-    bounds the work walked, not just the output sliced (mirrors the lineage
-    readers). Packages are routed through ``copy_cached_row`` so the shared
-    cached SBOM stays read-only when a row escapes to a caller.
-
-    Traversal and emission are deduplicated separately. A local ``visited``
-    set (per walk) terminates cycles and dedups the frontier. ``emitted`` is
-    supplied (and mutated) by the caller so ``lineage_direction`` = ``BOTH``
-    dedups EMISSION across its upstream and downstream walks: a package
-    reachable in both directions (e.g. on a dependency cycle) is emitted once
-    and never double-billed against ``result_limit``, yet the second walk
-    still EXPANDS it, so packages reachable in the second direction only
-    through such an overlap node are not dropped.
-    A ``start`` absent from ``packages_index`` is itself a dangling node and
-    is not traversed, keeping the dangling-node rule below uniform for every
-    node including the start.
+    Thin binding over ``bfs_frontier_walk`` (see ``kg.traversal`` for the
+    budget and dedup semantics): supplies the dependency edge map, the
+    dangling-node gate (a neighbour absent from ``packages_index`` is
+    neither emitted nor traversed), and routes each package through
+    ``copy_cached_row`` so the shared cached SBOM stays read-only when a
+    row escapes to a caller. A ``start`` absent from ``packages_index`` is
+    itself a dangling node and is not traversed, keeping the dangling-node
+    rule uniform for every node including the start.
     """
-    if depth <= 0 or remaining <= 0 or start not in packages_index:
+    if start not in packages_index:
         return []
-    visited: set[str] = {start}
-    out: list[dict[str, Any]] = []
-    frontier: list[str] = [start]
-    for _ in range(depth):
-        next_frontier: list[str] = []
-        for node in frontier:
-            for neighbour in edge_map.get(node, []):
-                if neighbour in visited:
-                    continue
-                visited.add(neighbour)
-                # A neighbour absent from ``packages_index`` is a dangling edge:
-                # it is neither emitted NOR traversed, so a real package reachable
-                # only THROUGH a missing intermediate stays unreachable (the
-                # "dangling edges skipped" contract covers transit nodes too).
-                if neighbour not in packages_index:
-                    continue
-                next_frontier.append(neighbour)
-                if neighbour in emitted:
-                    continue
-                emitted.add(neighbour)
-                out.append(copy_cached_row(packages_index[neighbour]))
-                if len(out) >= remaining:
-                    return out
-        if not next_frontier:
-            break
-        frontier = next_frontier
-    return out
+    return bfs_frontier_walk(
+        lambda node: edge_map.get(node, []),
+        start,
+        depth=depth,
+        remaining=remaining,
+        emit=lambda spdx_id: copy_cached_row(packages_index[spdx_id]),
+        emitted=emitted,
+        should_traverse=lambda spdx_id: spdx_id in packages_index,
+    )
 
 
 class SpdxSbomReader(CodeBuildReader):
