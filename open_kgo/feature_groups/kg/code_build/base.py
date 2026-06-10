@@ -57,6 +57,11 @@ class CodeBuildReader(ParamReader):
         context="CodeBuildReader.PARAMS_MAPPING",
     )
 
+    # Honest surface (option 3, see base.py): VCS/build provenance the SBOM
+    # concretes never consult (they parse manifest_path/locator), reserved for a
+    # provenance-aware concrete.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"commit_sha", "branch", "language_code"})
+
 
 class CodeBuildFeatureGroup(KgConnectorFeatureGroupBase):
     READER_CLASS = None

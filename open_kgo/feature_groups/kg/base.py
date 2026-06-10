@@ -11,6 +11,28 @@ Concrete plugins set ``CONNECTOR_ID`` and implement ``connect``,
 walks the ``ReadDB`` subclass tree and finds the right reader by calling
 ``is_valid_credentials`` on each candidate, which the universal base
 implements once against ``CONNECTOR_ID``.
+
+Honest credential surface
+-------------------------
+The rule, enforced rather than conventional: a connector must not advertise a
+slot (``PROPERTY_MAPPING``) or param (``PARAMS_MAPPING``) it silently ignores.
+Advertising a key a reader never reads lets a caller set it, see no error, and
+get the wrong behavior. A connector reconciles its surface one of three ways:
+
+1. **Drop it** via ``narrow_property_mapping`` (slot) or by narrowing
+   ``PARAMS_MAPPING`` (param; dropped keys land in ``_STRIPPED_PARAMS`` and are
+   rejected at call time).
+2. **Narrow/waive an enum**: pin ``SUPPORTED_VALUES[key]`` to the honored
+   subset, or list it in ``_WAIVED_ENUM_KEYS`` for forward-compat. Enforced by
+   ``test_strict_enum_honored_or_waived``.
+3. **Waive a non-enum key** kept for a future concrete: list it in
+   ``_WAIVED_UNCONSUMED_KEYS`` with a one-line reason. Enforced by
+   ``test_no_unconsumed_advertised_keys``, which treats an exact string-literal
+   reference in a reader method as proof of consumption.
+
+The two tests partition the advertised surface (strict enums vs. the rest), so
+every key has an explicit disposition and a new connector that forgets to trim
+goes red instead of misleading callers.
 """
 
 from __future__ import annotations
@@ -94,7 +116,8 @@ def narrow_property_mapping(source: dict[str, Any], *exclude: str) -> dict[str, 
 
     Concrete plugins drop family-level keys they do not honor (advertising
     a key the reader ignores would be a surface lie that the closed-world
-    credential check then rejects). Several concretes spelled this as an
+    credential check then rejects). This is option 1 of the "Honest credential
+    surface" rule in this module's docstring. Several concretes spelled this as an
     inline ``{k: v for k, v in Parent.PROPERTY_MAPPING.items() if k not in {...}}``
     comprehension; centralising it names the intent and keeps the narrowing
     rule in one place. Keys in ``exclude`` that are absent from ``source``
@@ -236,18 +259,28 @@ class KgConnectorReaderBase(ReadDB):
     # ``SUPPORTED_VALUES``; use a waiver only when narrowing would lock out a
     # forward-compatible value the family base legitimately advertises (e.g.
     # ``read_consistency`` is a Kuzu no-op today but real network_pg backends
-    # will honor it). The ``test_strict_enum_honored_or_waived`` contract test
-    # rejects any strict-validation enum that is neither in
+    # will honor it). This is option 2 of the "Honest credential surface" rule
+    # in this module's docstring. The ``test_strict_enum_honored_or_waived``
+    # contract test rejects any strict-validation enum that is neither in
     # ``SUPPORTED_VALUES`` nor in ``_WAIVED_ENUM_KEYS``; each waived key carries
     # a one-line comment on the concrete class explaining the waiver. The
     # contract test enforces membership only; the comment is review-time
     # discipline.
     _WAIVED_ENUM_KEYS: ClassVar[frozenset[str]] = frozenset()
 
+    # Option 3 of the "Honest credential surface" rule (module docstring): the
+    # non-enum counterpart to ``_WAIVED_ENUM_KEYS``. Non-strict keys advertised
+    # but not consumed at runtime, kept as forward-compat surface; each needs a
+    # one-line reason. ``test_no_unconsumed_advertised_keys`` enforces it and
+    # unions this set across the MRO (see ``effective_unconsumed_waivers``), so a
+    # family base may waive family-wide keys and a concrete add its own.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset()
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         cls._validate_mapping_spec_shapes()
         cls._validate_supported_values_invariant()
+        cls._validate_unconsumed_waivers()
 
     @classmethod
     def _validate_mapping_spec_shapes(cls) -> None:
@@ -337,6 +370,30 @@ class KgConnectorReaderBase(ReadDB):
                     f"a defaulted value it does not honor. Add ({key!r},) to REQUIRED_KEYS, or "
                     f"widen the narrowed set to include the default."
                 )
+
+    @classmethod
+    def _validate_unconsumed_waivers(cls) -> None:
+        """Reject locally-declared ``_WAIVED_UNCONSUMED_KEYS`` entries that name no advertised key.
+
+        Catches a typo or stale waiver (key later stripped) that would silently
+        no-op. Only the class's own declaration (``cls.__dict__``) is checked
+        against the resolved mappings: an inherited waiver naming a key a
+        subclass strips is inert (the contract test iterates advertised keys
+        only), not an error.
+        """
+        local = cls.__dict__.get("_WAIVED_UNCONSUMED_KEYS")
+        if not local:
+            return
+        advertised = set(cls.PROPERTY_MAPPING)
+        params_mapping: Mapping[str, Any] = getattr(cls, "PARAMS_MAPPING", {})
+        advertised |= set(params_mapping)
+        unknown = set(local) - advertised
+        if unknown:
+            raise ValueError(
+                f"{cls.__name__}._WAIVED_UNCONSUMED_KEYS names key(s) not present in "
+                f"PROPERTY_MAPPING or PARAMS_MAPPING: {sorted(unknown)}. Remove the stale "
+                f"waiver, or fix the key name."
+            )
 
     def load(self, features: FeatureSet) -> Any:
         """Reject multi-feature FeatureSets, then return native rows from ``load_data``.
@@ -969,8 +1026,11 @@ class ParamReader(KgConnectorReaderBase):
     def _reject_stripped_params(cls, features: FeatureSet) -> None:
         """Raise if any family-declared but concrete-stripped param is set on the feature.
 
-        Scope is intentionally narrow: only checks ``feature.options.context``
-        (where per-call params live), not ``feature.options.group`` (mloda's
+        This is the per-call enforcement of option 1 of the "Honest credential
+        surface" rule (see this module's docstring): a param the concrete
+        dropped from ``PARAMS_MAPPING`` must not be silently accepted. Scope is
+        intentionally narrow: only checks ``feature.options.context`` (where
+        per-call params live), not ``feature.options.group`` (mloda's
         feature-grouping concept, out of scope for the per-call surface lie
         check). Unrelated keys in ``feature.options.context`` pass through;
         only family-declared keys this concrete dropped count as surface lies.

@@ -65,6 +65,11 @@ class CitationRestReader(PaginationMixin, ParamReader):
 
     REQUIRED_PARAMS: ClassVar[tuple[tuple[str, ...], ...]] = (("stable_id",),)
 
+    # Honest surface (option 3, see base.py): reproducibility/scoping pins the
+    # file-fixture concretes ignore (they read locator/stable_id), reserved for
+    # a networked concrete.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"species_prefix", "dataset_version"})
+
 
 class CitationRestFeatureGroup(KgConnectorFeatureGroupBase):
     READER_CLASS = None

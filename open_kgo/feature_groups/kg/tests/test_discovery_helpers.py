@@ -10,6 +10,11 @@ consumer tests don't pin:
 - ``clean_kg_subclass_registry`` positive / negative / invariant-failure paths.
 - ``iter_strict_specs`` skips non-dict spec entries, walks ``PARAMS_MAPPING``
   only for ``ParamReader`` subclasses, and skips non-strict keys.
+- ``iter_nonstrict_specs`` / ``reader_string_literals`` /
+  ``effective_unconsumed_waivers``: the surface-honesty building blocks,
+  including an end-to-end disposition that flags a synthetic surface lie and
+  shows a waiver clearing it (the negative test for
+  ``test_no_unconsumed_advertised_keys``).
 
 Every synthetic class is built inside a factory so its local binding is
 reclaimed at factory return; primitive observations escape so the cm wrapping
@@ -27,7 +32,10 @@ from mloda.core.abstract_plugins.components.default_options_key import DefaultOp
 from open_kgo.feature_groups.kg.base import KgConnectorReaderBase, ParamReader, QueryReader
 from open_kgo.feature_groups.kg.tests._discovery import (
     clean_kg_subclass_registry,
+    effective_unconsumed_waivers,
+    iter_nonstrict_specs,
     iter_strict_specs,
+    reader_string_literals,
 )
 
 
@@ -187,3 +195,149 @@ def test_iter_strict_specs_excludes_params_mapping_for_query_reader() -> None:
         observed = _exercise()
     assert observed == [("qr_strict", "PROPERTY_MAPPING")]
     assert all(key != "should_not_appear" for key, _layer in observed)
+
+
+# -- iter_nonstrict_specs -----------------------------------------------------
+
+
+def test_iter_nonstrict_specs_is_the_complement_of_iter_strict_specs() -> None:
+    """``iter_nonstrict_specs`` yields exactly the non-strict keys over the same layers.
+
+    The two helpers partition the advertised surface so the strict-enum and
+    surface-honesty contract tests never double-cover or skip a key.
+    """
+
+    def _exercise() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+        class _PR(ParamReader):
+            CONNECTOR_ID = "_b4_nonstrict"
+            PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
+                "prop_strict": {DefaultOptionKeys.strict_validation: True, "allowed_values": ["a"]},
+                "prop_loose": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
+            }
+            PARAMS_MAPPING: ClassVar[dict[str, Any]] = {
+                "param_loose": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
+            }
+
+        strict = [(k, str(layer)) for k, _s, layer in iter_strict_specs(_PR)]
+        nonstrict = [(k, str(layer)) for k, _s, layer in iter_nonstrict_specs(_PR)]
+        return strict, nonstrict
+
+    with clean_kg_subclass_registry():
+        strict, nonstrict = _exercise()
+    assert strict == [("prop_strict", "PROPERTY_MAPPING")]
+    assert sorted(nonstrict) == [("param_loose", "PARAMS_MAPPING"), ("prop_loose", "PROPERTY_MAPPING")]
+
+
+# -- reader_string_literals ---------------------------------------------------
+
+
+def test_reader_string_literals_separates_read_keys_from_declared_only_keys() -> None:
+    """A key read by literal in a method appears; a key only declared in a mapping does not."""
+
+    def _exercise() -> set[str]:
+        class _ProbeReader(KgConnectorReaderBase):
+            CONNECTOR_ID = "_b4_literals"
+            PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
+                # Declared but never read in any method body below.
+                "zzz_advertised_only": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
+                "zzz_consumed_key": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
+            }
+
+            @classmethod
+            def _connect_from_slot(cls, slot: Any) -> Any:
+                # Reads one key by literal; the docstring mentions the other key
+                # name in prose, which must NOT count as consumption.
+                """Mentions zzz_advertised_only in prose only."""
+                return slot.get("zzz_consumed_key")
+
+        return reader_string_literals(_ProbeReader)
+
+    with clean_kg_subclass_registry():
+        literals = _exercise()
+    assert "zzz_consumed_key" in literals
+    assert "zzz_advertised_only" not in literals
+
+
+def test_reader_string_literals_includes_inherited_base_consumption() -> None:
+    """Universal keys read in the base (``ontology`` / ``result_limit``) surface for any reader."""
+
+    def _exercise() -> set[str]:
+        class _BareReader(KgConnectorReaderBase):
+            CONNECTOR_ID = "_b4_inherited"
+
+        return reader_string_literals(_BareReader)
+
+    with clean_kg_subclass_registry():
+        literals = _exercise()
+    assert {"ontology", "result_limit"} <= literals
+
+
+# -- effective_unconsumed_waivers ---------------------------------------------
+
+
+def test_effective_unconsumed_waivers_unions_across_mro() -> None:
+    """A concrete's waiver set unions with every ancestor's, rather than shadowing it."""
+
+    def _exercise() -> set[str]:
+        class _FamilyBase(KgConnectorReaderBase):
+            PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
+                "family_key": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
+                "concrete_key": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
+            }
+            _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"family_key"})
+
+        class _Concrete(_FamilyBase):
+            CONNECTOR_ID = "_b4_waiver_union"
+            _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"concrete_key"})
+
+        return effective_unconsumed_waivers(_Concrete)
+
+    with clean_kg_subclass_registry():
+        waived = _exercise()
+    assert {"family_key", "concrete_key"} <= waived
+
+
+def test_unconsumed_waiver_naming_unknown_key_is_rejected_at_class_definition() -> None:
+    """``_WAIVED_UNCONSUMED_KEYS`` naming a key absent from the mappings raises at definition."""
+    with clean_kg_subclass_registry():
+        with pytest.raises(ValueError, match="not present in PROPERTY_MAPPING or PARAMS_MAPPING"):
+
+            class _StaleWaiver(KgConnectorReaderBase):
+                CONNECTOR_ID = "_b4_stale_waiver"
+                _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"definitely_not_advertised"})
+
+
+def test_surface_honesty_disposition_flags_a_lie_and_a_waiver_clears_it() -> None:
+    """End-to-end: an advertised-but-unread non-strict key is flagged; waiving it clears it.
+
+    Composes the three helpers as ``test_no_unconsumed_advertised_keys`` does,
+    proving the contract catches a real lie rather than passing vacuously.
+    """
+
+    def _disposition(reader_cls: type[KgConnectorReaderBase]) -> list[str]:
+        consumed = reader_string_literals(reader_cls)
+        waived = effective_unconsumed_waivers(reader_cls)
+        return [
+            key for key, _spec, _layer in iter_nonstrict_specs(reader_cls) if key not in consumed and key not in waived
+        ]
+
+    def _exercise() -> tuple[list[str], list[str]]:
+        class _LyingReader(KgConnectorReaderBase):
+            CONNECTOR_ID = "_b4_lie"
+            PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
+                "zzz_never_read": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
+            }
+
+        class _WaivedReader(KgConnectorReaderBase):
+            CONNECTOR_ID = "_b4_waived"
+            PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
+                "zzz_never_read": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
+            }
+            _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"zzz_never_read"})
+
+        return _disposition(_LyingReader), _disposition(_WaivedReader)
+
+    with clean_kg_subclass_registry():
+        lying, waived = _exercise()
+    assert lying == ["zzz_never_read"]
+    assert waived == []

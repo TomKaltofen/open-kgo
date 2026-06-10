@@ -89,6 +89,11 @@ class EmbeddedGraphReader(ParamReader):
         context="EmbeddedGraphReader",
     )
 
+    # Honest surface (option 3, see base.py): advisory backend knobs neither
+    # in-process concrete enforces (whole-graph, single-threaded), reserved for a
+    # backend that can.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"read_only", "max_threads"})
+
     PARAMS_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
         {
             "operation": {

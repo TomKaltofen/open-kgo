@@ -106,6 +106,25 @@ class AgentMemoryReader(PaginationMixin, QueryReader):
         context="AgentMemoryReader",
     )
 
+    # Honest surface (option 3, see base.py): forward-compat GraphRAG menu the
+    # in-process concretes don't read (alternate scope aliases, bi-temporal and
+    # scoring knobs, pagination), reserved for future backends (Mem0, Letta,
+    # Zep). ``valid_at_range`` is waived per-concrete on GraphWalkMemoryReader,
+    # since the lexical sibling reads it.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "page_size",
+            "memory_scope_agent_id",
+            "memory_scope_session_id",
+            "memory_scope_run_id",
+            "memory_scope_group_ids",
+            "reference_time",
+            "invalid_at_range",
+            "mmr_lambda",
+            "threshold",
+        }
+    )
+
 
 class AgentMemoryFeatureGroup(KgConnectorFeatureGroupBase):
     READER_CLASS = None

@@ -9,16 +9,16 @@ containing ``page_<N>.json`` files; each file looks like an OpenAlex page:
 The reader walks pages until ``next_cursor`` is null or ``result_limit`` is
 reached.
 
-Surface narrowing:
+Surface narrowing (the "Honest credential surface" rule in base.py):
 
 - ``pagination_style`` is narrowed via ``SUPPORTED_VALUES`` to ``cursor`` only
   AND listed in ``REQUIRED_KEYS``: any other value is rejected at
   ``is_valid_credentials`` time, and omission is rejected too (the narrowing
   only validates keys present in the slot, so without the requirement an
   omitted key would run the cursor walk under the family default ``none``).
-- ``page_size`` is dropped from ``PROPERTY_MAPPING``; the fixture walker
-  reads whole pages, so a credential setting it would be a surface lie. The
-  closed-world credential check rejects it.
+- ``page_size`` is dropped from ``PROPERTY_MAPPING`` (option 1 of that rule);
+  the fixture walker reads whole pages, so a credential setting it would be a
+  surface lie. The closed-world credential check rejects it.
 - ``cursor_token`` and ``entity_type`` are dropped from ``PARAMS_MAPPING``;
   setting either in ``feature.options`` is rejected per-call via the
   ``_STRIPPED_PARAMS`` hook on ``ParamReader``.

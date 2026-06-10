@@ -22,9 +22,10 @@ family-level ``locator`` slot is dropped from ``PROPERTY_MAPPING`` and
 ``REQUIRED_KEYS`` because accepting a configurable locator on a connector
 whose tenant enum is closed at class load would create a silent scope
 mismatch (user-supplied fixtures with tenants outside ``allowed_values``
-would be rejected at the matcher with no diagnostic). This mirrors the
-``page_size`` drop on ``FileFixtureRestReader``: a credential slot that the
-concrete cannot honor is a surface lie, so we drop it.
+would be rejected at the matcher with no diagnostic). This is option 1 of the
+"Honest credential surface" rule in base.py, mirroring the ``page_size`` drop
+on ``FileFixtureRestReader``: a credential slot that the concrete cannot honor
+is a surface lie, so we drop it.
 
 Tenant validation has two layers:
 
@@ -110,6 +111,11 @@ class InProcessTupleStoreReader(SaasAuthzReader):
     # values, so narrowing here would lock the family contract to the fake's
     # single honored value and force future concretes to widen.
     _WAIVED_ENUM_KEYS: ClassVar[frozenset[str]] = frozenset({"consistency_mode"})
+    # Honest surface (option 3, see base.py): this fake returns the whole list
+    # in one shot and filters only by entity_type/relationship_type, so
+    # ``page_size`` and ``expand_paths`` are unused (the paginated sibling reads
+    # page_size). Unioned with the family-base waivers across the MRO.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"page_size", "expand_paths"})
 
     # The canonical fixture this concrete serves. Pinned at class load so the
     # closed ``allowed_values`` enum on ``tenant`` (below) is a truthful
