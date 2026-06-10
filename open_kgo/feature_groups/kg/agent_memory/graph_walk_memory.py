@@ -124,6 +124,12 @@ class GraphWalkMemoryReader(AgentMemoryReader):
         "pagination_style": frozenset({"none"}),
         "retrieval_mode": frozenset({"graph"}),
     }
+    # Honest credential surface (option 3, see base.py): the BFS walk returns
+    # reachable memories regardless of temporal validity, so ``valid_at_range``
+    # is ACCEPTED but NOT APPLIED here (the lexical sibling honors it). The
+    # family base already waives ``reference_time`` / ``invalid_at_range``;
+    # this adds the one key the sibling consumes but this concrete does not.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"valid_at_range"})
 
     @classmethod
     def _connect_from_slot(cls, slot: Mapping[str, Any]) -> nx.MultiDiGraph:

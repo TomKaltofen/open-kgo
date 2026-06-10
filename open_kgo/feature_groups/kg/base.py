@@ -11,6 +11,43 @@ Concrete plugins set ``CONNECTOR_ID`` and implement ``connect``,
 walks the ``ReadDB`` subclass tree and finds the right reader by calling
 ``is_valid_credentials`` on each candidate, which the universal base
 implements once against ``CONNECTOR_ID``.
+
+Honest credential surface
+-------------------------
+The base classes offer a generous menu of credential slots (``PROPERTY_MAPPING``)
+and per-call parameters (``PARAMS_MAPPING``). A concrete connector usually
+honors only a subset: its backend cannot use every slot the family advertises.
+The rule, enforced rather than merely conventional:
+
+    A connector must not advertise a slot or parameter it silently ignores.
+
+Advertising a slot a reader never reads is worse than omitting it: a caller
+sets the value, sees no error, and silently gets the wrong behavior. A
+connector therefore reconciles its surface with what it actually consumes in
+one of three ways:
+
+1. **Drop it.** Remove the slot/param from the connector's mapping with
+   ``narrow_property_mapping`` (credential slot) or by narrowing
+   ``PARAMS_MAPPING`` (per-call param; the dropped keys are recovered into
+   ``_STRIPPED_PARAMS`` and rejected at call time). The key no longer appears
+   on the connector's public surface.
+2. **Narrow / waive an enum.** For a strict-validation enum, pin
+   ``SUPPORTED_VALUES[key]`` to the subset the runtime dispatches, or list the
+   key in ``_WAIVED_ENUM_KEYS`` when the family-advertised values are kept for a
+   future concrete (forward-compat). Enforced by
+   ``test_strict_enum_honored_or_waived``.
+3. **Waive a non-enum slot/param.** When a non-strict key is deliberately
+   advertised but not yet consumed (forward-compat surface reserved for a
+   future concrete in the family), list it in ``_WAIVED_UNCONSUMED_KEYS`` with a
+   one-line comment explaining why. Enforced by
+   ``test_no_unconsumed_advertised_keys``, which treats an exact string-literal
+   reference in a reader method as proof of consumption and flags any
+   non-strict advertised key that is neither consumed nor waived.
+
+The two contract tests partition the advertised surface (strict enums vs. the
+rest) so every advertised key has an explicit, reviewable disposition. New
+connectors that forget to trim turn a silent surface lie into a red build
+instead of quietly misleading callers.
 """
 
 from __future__ import annotations
@@ -94,7 +131,8 @@ def narrow_property_mapping(source: dict[str, Any], *exclude: str) -> dict[str, 
 
     Concrete plugins drop family-level keys they do not honor (advertising
     a key the reader ignores would be a surface lie that the closed-world
-    credential check then rejects). Several concretes spelled this as an
+    credential check then rejects). This is option 1 of the "Honest credential
+    surface" rule in this module's docstring. Several concretes spelled this as an
     inline ``{k: v for k, v in Parent.PROPERTY_MAPPING.items() if k not in {...}}``
     comprehension; centralising it names the intent and keeps the narrowing
     rule in one place. Keys in ``exclude`` that are absent from ``source``
@@ -236,18 +274,34 @@ class KgConnectorReaderBase(ReadDB):
     # ``SUPPORTED_VALUES``; use a waiver only when narrowing would lock out a
     # forward-compatible value the family base legitimately advertises (e.g.
     # ``read_consistency`` is a Kuzu no-op today but real network_pg backends
-    # will honor it). The ``test_strict_enum_honored_or_waived`` contract test
-    # rejects any strict-validation enum that is neither in
+    # will honor it). This is option 2 of the "Honest credential surface" rule
+    # in this module's docstring. The ``test_strict_enum_honored_or_waived``
+    # contract test rejects any strict-validation enum that is neither in
     # ``SUPPORTED_VALUES`` nor in ``_WAIVED_ENUM_KEYS``; each waived key carries
     # a one-line comment on the concrete class explaining the waiver. The
     # contract test enforces membership only; the comment is review-time
     # discipline.
     _WAIVED_ENUM_KEYS: ClassVar[frozenset[str]] = frozenset()
 
+    # Non-strict credential/param keys this connector advertises (inherits in
+    # ``PROPERTY_MAPPING`` / ``PARAMS_MAPPING``) but does not consume at
+    # runtime, deliberately kept as forward-compat surface for a future
+    # concrete in the family. This is option 3 of the "Honest credential
+    # surface" rule in this module's docstring: the non-enum counterpart to
+    # ``_WAIVED_ENUM_KEYS``. The ``test_no_unconsumed_advertised_keys`` contract
+    # test rejects any non-strict advertised key that is neither consumed (read
+    # by literal in a reader method) nor listed here; each waived key carries a
+    # one-line comment explaining why it is advertised but not yet consumed.
+    # Unlike a plain override, the contract test unions this set across the MRO
+    # (see ``effective_unconsumed_waivers``), so a family base may waive
+    # family-wide keys while a concrete adds its own without re-listing them.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset()
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         cls._validate_mapping_spec_shapes()
         cls._validate_supported_values_invariant()
+        cls._validate_unconsumed_waivers()
 
     @classmethod
     def _validate_mapping_spec_shapes(cls) -> None:
@@ -337,6 +391,37 @@ class KgConnectorReaderBase(ReadDB):
                     f"a defaulted value it does not honor. Add ({key!r},) to REQUIRED_KEYS, or "
                     f"widen the narrowed set to include the default."
                 )
+
+    @classmethod
+    def _validate_unconsumed_waivers(cls) -> None:
+        """Reject locally-declared ``_WAIVED_UNCONSUMED_KEYS`` entries that name no advertised key.
+
+        A waiver documents a non-strict key the connector advertises but does
+        not consume (option 3 of the "Honest credential surface" rule). Waiving
+        a key absent from this class's ``PROPERTY_MAPPING`` / ``PARAMS_MAPPING``
+        is a typo or a stale waiver (the key was later stripped) that would
+        silently no-op, so it is rejected at class-definition time.
+
+        Only the class's own declaration (``cls.__dict__``) is checked: an
+        inherited waiver naming a key a subclass strips is never consulted by
+        the contract test (which iterates advertised keys only), so it is inert
+        rather than an error. The resolved ``PROPERTY_MAPPING`` /
+        ``PARAMS_MAPPING`` is used as the advertised set so a family base that
+        declares the waiver alongside the keys it adds validates cleanly.
+        """
+        local = cls.__dict__.get("_WAIVED_UNCONSUMED_KEYS")
+        if not local:
+            return
+        advertised = set(cls.PROPERTY_MAPPING)
+        params_mapping: Mapping[str, Any] = getattr(cls, "PARAMS_MAPPING", {})
+        advertised |= set(params_mapping)
+        unknown = set(local) - advertised
+        if unknown:
+            raise ValueError(
+                f"{cls.__name__}._WAIVED_UNCONSUMED_KEYS names key(s) not present in "
+                f"PROPERTY_MAPPING or PARAMS_MAPPING: {sorted(unknown)}. Remove the stale "
+                f"waiver, or fix the key name."
+            )
 
     def load(self, features: FeatureSet) -> Any:
         """Reject multi-feature FeatureSets, then return native rows from ``load_data``.

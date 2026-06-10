@@ -106,6 +106,30 @@ class AgentMemoryReader(PaginationMixin, QueryReader):
         context="AgentMemoryReader",
     )
 
+    # Honest credential surface (option 3, see base.py): the family advertises a
+    # broad GraphRAG menu, but the two shipped concretes are simple in-process
+    # backends that honor only ``memory_scope_user_id`` + ``valid_at_range``
+    # (lexical) / ``memory_scope_user_id`` (graph-walk). The rest is forward-compat
+    # surface reserved for future concretes (Mem0, Letta, Zep+Graphiti): the
+    # alternate scope aliases, the bi-temporal ``reference_time`` /
+    # ``invalid_at_range`` filters, the ``mmr_lambda`` / ``threshold`` scoring
+    # knobs, and the pagination ``page_size`` (these QueryReader concretes return
+    # a single result set). ``valid_at_range`` is waived per-concrete on
+    # ``GraphWalkMemoryReader`` only, since the lexical sibling reads it.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "page_size",
+            "memory_scope_agent_id",
+            "memory_scope_session_id",
+            "memory_scope_run_id",
+            "memory_scope_group_ids",
+            "reference_time",
+            "invalid_at_range",
+            "mmr_lambda",
+            "threshold",
+        }
+    )
+
 
 class AgentMemoryFeatureGroup(KgConnectorFeatureGroupBase):
     READER_CLASS = None

@@ -57,6 +57,13 @@ class RestPublicReader(PaginationMixin, ParamReader):
         context="RestPublicReader.PARAMS_MAPPING",
     )
 
+    # Honest credential surface (option 3, see base.py): ``dataset_version``,
+    # ``user_agent`` and ``rate_limit_pace`` matter to a real polite-pool HTTP
+    # endpoint, but the file-fixture concretes read canned JSON pages from disk,
+    # so none of the three is consulted. Forward-compat surface reserved for a
+    # networked REST concrete.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"dataset_version", "user_agent", "rate_limit_pace"})
+
 
 class RestPublicFeatureGroup(KgConnectorFeatureGroupBase):
     READER_CLASS = None

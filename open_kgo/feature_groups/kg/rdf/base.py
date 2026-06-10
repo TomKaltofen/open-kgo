@@ -66,6 +66,16 @@ class RdfSparqlReader(InferenceMixin, QueryReader):
         context="RdfSparqlReader",
     )
 
+    # Honest credential surface (option 3, see base.py): the SPARQL graph-dataset
+    # selectors (``default_graph_uris`` / ``named_graph_uris``) and the separate
+    # ``update_endpoint`` are honored by real SPARQL endpoints, but the shipped
+    # concretes query a single in-memory triple store with no dataset scoping and
+    # no UPDATE surface, so all three are ignored. Forward-compat surface reserved
+    # for a networked SPARQL concrete.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset(
+        {"default_graph_uris", "named_graph_uris", "update_endpoint"}
+    )
+
 
 class RdfSparqlFeatureGroup(KgConnectorFeatureGroupBase):
     """Family-base FG for RDF/SPARQL connectors. Concrete subclasses pin READER_CLASS."""

@@ -89,6 +89,13 @@ class EmbeddedGraphReader(ParamReader):
         context="EmbeddedGraphReader",
     )
 
+    # Honest credential surface (option 3, see base.py): ``read_only`` and
+    # ``max_threads`` are advisory backend knobs (the specs say as much). Both
+    # in-process concretes load the whole graph and run single-threaded, so
+    # neither value is consulted. Forward-compat surface reserved for a backend
+    # that can enforce them.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"read_only", "max_threads"})
+
     PARAMS_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
         {
             "operation": {

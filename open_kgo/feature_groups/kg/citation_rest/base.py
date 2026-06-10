@@ -65,6 +65,13 @@ class CitationRestReader(PaginationMixin, ParamReader):
 
     REQUIRED_PARAMS: ClassVar[tuple[tuple[str, ...], ...]] = (("stable_id",),)
 
+    # Honest credential surface (option 3, see base.py): ``species_prefix`` and
+    # ``dataset_version`` are reproducibility/scoping pins that real citation
+    # APIs (Reactome, OpenAlex) honor, but the file-fixture concretes resolve
+    # their data straight from ``locator`` / ``stable_id`` and ignore both.
+    # Forward-compat surface reserved for a networked concrete in this family.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"species_prefix", "dataset_version"})
+
 
 class CitationRestFeatureGroup(KgConnectorFeatureGroupBase):
     READER_CLASS = None

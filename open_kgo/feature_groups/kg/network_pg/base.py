@@ -55,6 +55,13 @@ class NetworkPropertyGraphReader(QueryReader):
         context="NetworkPropertyGraphReader",
     )
 
+    # Honest credential surface (option 3, see base.py): ``dataset`` names a
+    # database / graph / space on a networked endpoint, but both shipped
+    # concretes run over a single in-memory (GrandCypher) or embedded (Kuzu)
+    # graph with no named-database concept, so the value is ignored. Forward-
+    # compat surface reserved for a networked concrete (Neo4j, Memgraph).
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"dataset"})
+
 
 class NetworkPropertyGraphFeatureGroup(KgConnectorFeatureGroupBase):
     READER_CLASS = None
