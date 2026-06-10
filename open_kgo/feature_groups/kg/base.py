@@ -33,6 +33,21 @@ get the wrong behavior. A connector reconciles its surface one of three ways:
 The two tests partition the advertised surface (strict enums vs. the rest), so
 every key has an explicit disposition and a new connector that forgets to trim
 goes red instead of misleading callers.
+
+Source-slot convention
+----------------------
+A connector identifies "where is the data" via the credential key named in
+``SOURCE_SLOT`` (default ``"locator"``). A family or concrete that renames the
+address slot declares the new name (``SOURCE_SLOT = "manifest_path"`` on
+``CodeBuildReader``, issue #18), and one that bakes its source into the reader
+declares ``SOURCE_SLOT = None`` (``InProcessTupleStoreReader``, issue #19).
+The declaration is enforced two ways (issue #21): ``_validate_source_slot``
+rejects an undeclared rename or drop at class-definition time, and the
+cross-family catalog test reads the declaration as data and fails on any
+spelling outside its known vocabulary
+(``test_source_slot_declaration_matches_catalog`` in
+``tests/test_kg_families_e2e.py``), so a fourth spelling cannot creep in
+silently.
 """
 
 from __future__ import annotations
@@ -226,6 +241,16 @@ class KgConnectorReaderBase(ReadDB):
     CONNECTOR_ID: ClassVar[str] = ""
     REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = ()
 
+    # The credential key a caller sets to point this connector at its data
+    # (the "Source-slot convention" in this module's docstring). Default is
+    # the shared ``locator``. A family/concrete that renames the address slot
+    # declares the new name here; one that bakes the source into the reader
+    # declares ``None``. ``_validate_source_slot`` enforces at class-definition
+    # time that the declaration matches ``PROPERTY_MAPPING``, so a rename or
+    # drop without a matching declaration fails the import instead of becoming
+    # a silent fourth spelling.
+    SOURCE_SLOT: ClassVar[str | None] = "locator"
+
     # Per-property "requires" rules resolved against sibling values. Each entry
     # is ``(prop_name, prop_value, OR-groups)``: when ``creds.get(prop_name) ==
     # prop_value``, the OR-groups are enforced just like ``REQUIRED_KEYS`` (each
@@ -281,6 +306,7 @@ class KgConnectorReaderBase(ReadDB):
         cls._validate_mapping_spec_shapes()
         cls._validate_supported_values_invariant()
         cls._validate_unconsumed_waivers()
+        cls._validate_source_slot()
 
     @classmethod
     def _validate_mapping_spec_shapes(cls) -> None:
@@ -393,6 +419,48 @@ class KgConnectorReaderBase(ReadDB):
                 f"{cls.__name__}._WAIVED_UNCONSUMED_KEYS names key(s) not present in "
                 f"PROPERTY_MAPPING or PARAMS_MAPPING: {sorted(unknown)}. Remove the stale "
                 f"waiver, or fix the key name."
+            )
+
+    @classmethod
+    def _validate_source_slot(cls) -> None:
+        """Reject a ``SOURCE_SLOT`` declaration that contradicts ``PROPERTY_MAPPING`` at class-definition time.
+
+        The enforcement half of the "Source-slot convention" (module
+        docstring). Two contradictions are possible and both are rejected:
+
+        - ``SOURCE_SLOT`` names a key the class does not advertise. This is
+          either a typo, or the class renamed/dropped the address slot
+          (``narrow_property_mapping(..., "locator")``) while inheriting the
+          default declaration. Both mean the declaration lies about how a
+          caller points the connector at its data.
+        - ``SOURCE_SLOT is None`` (source baked into the reader) while
+          ``locator`` is still advertised. A baked connector accepting a
+          ``locator`` credential would be a surface lie (the honest-credential
+          rule), so the declaration and the mapping must drop it together.
+
+        A non-``None``, non-``str`` value is a type error caught here rather
+        than later in a confusing membership check.
+        """
+        slot_name = cls.SOURCE_SLOT
+        if slot_name is None:
+            if "locator" in cls.PROPERTY_MAPPING:
+                raise ValueError(
+                    f"{cls.__name__}.SOURCE_SLOT is None (source baked into the reader) but 'locator' "
+                    f"is still advertised in PROPERTY_MAPPING. Drop 'locator' via "
+                    f"narrow_property_mapping, or declare SOURCE_SLOT = 'locator'."
+                )
+            return
+        if not isinstance(slot_name, str):
+            raise ValueError(
+                f"{cls.__name__}.SOURCE_SLOT must be a str credential key or None, "
+                f"got {type(slot_name).__name__} ({slot_name!r})."
+            )
+        if slot_name not in cls.PROPERTY_MAPPING:
+            raise ValueError(
+                f"{cls.__name__}.SOURCE_SLOT={slot_name!r} is not a key in PROPERTY_MAPPING. "
+                f"Every connector must declare how a caller points it at its data: keep the "
+                f"declared slot in PROPERTY_MAPPING, override SOURCE_SLOT to the renamed key, "
+                f"or declare SOURCE_SLOT = None if the source is baked into the reader."
             )
 
     def load(self, features: FeatureSet) -> Any:

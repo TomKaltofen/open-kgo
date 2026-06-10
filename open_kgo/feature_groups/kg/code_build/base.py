@@ -15,6 +15,12 @@ from open_kgo.feature_groups.kg.mixins import EntityFilterParamMixin, TraversalM
 
 
 class CodeBuildReader(ParamReader):
+    # Declared source-slot rename (issue #18, enforced per issue #21): this
+    # family keys its address on manifest_path; 'locator' stays advertised as
+    # a fallback. See the DESIGN NOTE in this package's __init__.py and the
+    # "Source-slot convention" in kg/base.py.
+    SOURCE_SLOT: ClassVar[str | None] = "manifest_path"
+
     PROPERTY_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
         ParamReader.PROPERTY_MAPPING,
         {

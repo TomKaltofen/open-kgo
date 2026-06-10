@@ -605,3 +605,111 @@ def test_stripped_params_skips_param_reader_ancestors_with_empty_mapping() -> No
     # Leaf compares against the mid level (the only non-empty ancestor), not
     # the abstract top; the strip set is therefore {β}.
     assert leaf._STRIPPED_PARAMS == frozenset({"beta"})
+
+
+# -- SOURCE_SLOT declaration invariant (issue #21) ------------------------------
+#
+# The "Source-slot convention" in ``base.py``: a connector identifies its data
+# source via the credential key named in ``SOURCE_SLOT`` (default ``locator``),
+# declares a rename explicitly, or declares ``None`` for a baked-in source.
+# ``_validate_source_slot`` rejects a declaration that contradicts
+# ``PROPERTY_MAPPING`` at class-definition time. Each negative test below
+# violates the invariant one way; the positive companions prove the declared
+# shapes (rename, baked) pass, and the shipped declarations are pinned so a
+# refactor cannot silently revert #18 / #19 to the undeclared state.
+
+
+def test_source_slot_invariant_rejects_undeclared_locator_drop() -> None:
+    """Narrowing ``locator`` out of PROPERTY_MAPPING without declaring SOURCE_SLOT fails.
+
+    This is the exact silent-divergence shape issue #21 closes: before the
+    convention, a concrete could drop the address slot and nothing flagged it.
+    """
+    with clean_kg_subclass_registry():
+        with pytest.raises(ValueError, match="not a key in PROPERTY_MAPPING"):
+
+            class _UndeclaredDrop(NetworkxMemoryReader):
+                CONNECTOR_ID = "_invariant_test_undeclared_drop"
+                PROPERTY_MAPPING = narrow_property_mapping(NetworkxMemoryReader.PROPERTY_MAPPING, "locator")
+
+
+def test_source_slot_invariant_rejects_unknown_slot_name() -> None:
+    """Declaring a SOURCE_SLOT that PROPERTY_MAPPING does not advertise fails (typo or missing spec)."""
+    with clean_kg_subclass_registry():
+        with pytest.raises(ValueError, match="not a key in PROPERTY_MAPPING"):
+
+            class _UnknownName(NetworkxMemoryReader):
+                CONNECTOR_ID = "_invariant_test_unknown_slot"
+                SOURCE_SLOT = "endpoint_url"
+
+
+def test_source_slot_invariant_rejects_baked_declaration_with_locator_advertised() -> None:
+    """SOURCE_SLOT=None while ``locator`` is still advertised is contradictory and fails."""
+    with clean_kg_subclass_registry():
+        with pytest.raises(ValueError, match="'locator' is still advertised"):
+
+            class _ContradictoryBaked(NetworkxMemoryReader):
+                CONNECTOR_ID = "_invariant_test_contradictory_baked"
+                SOURCE_SLOT = None
+
+
+def test_source_slot_invariant_rejects_non_string_declaration() -> None:
+    """A non-str, non-None SOURCE_SLOT is a type error caught at class definition."""
+    with clean_kg_subclass_registry():
+        with pytest.raises(ValueError, match="must be a str credential key or None"):
+
+            class _WrongType(NetworkxMemoryReader):
+                CONNECTOR_ID = "_invariant_test_wrong_slot_type"
+                SOURCE_SLOT = 123  # type: ignore[assignment]
+
+
+def test_source_slot_invariant_accepts_declared_rename_and_baked() -> None:
+    """Positive companions: a declared rename and a declared baked source both pass.
+
+    Classes are built inside a factory so their local bindings are reclaimed at
+    factory return (``clean_kg_subclass_registry`` leak rule); only primitive
+    declarations escape.
+    """
+
+    def _build_and_extract() -> tuple[str | None, str | None]:
+        class _DeclaredRename(NetworkxMemoryReader):
+            CONNECTOR_ID = "_invariant_test_declared_rename"
+            SOURCE_SLOT = "endpoint_url"
+            PROPERTY_MAPPING = {
+                **narrow_property_mapping(NetworkxMemoryReader.PROPERTY_MAPPING, "locator"),
+                "endpoint_url": {
+                    "explanation": "Synthetic renamed address slot.",
+                    DefaultOptionKeys.context: True,
+                    DefaultOptionKeys.strict_validation: False,
+                    DefaultOptionKeys.default: None,
+                },
+            }
+
+        class _DeclaredBaked(NetworkxMemoryReader):
+            CONNECTOR_ID = "_invariant_test_declared_baked"
+            SOURCE_SLOT = None
+            PROPERTY_MAPPING = narrow_property_mapping(NetworkxMemoryReader.PROPERTY_MAPPING, "locator")
+
+        return _DeclaredRename.SOURCE_SLOT, _DeclaredBaked.SOURCE_SLOT
+
+    with clean_kg_subclass_registry():
+        renamed, baked = _build_and_extract()
+    assert renamed == "endpoint_url"
+    assert baked is None
+
+
+def test_shipped_source_slot_declarations_are_pinned() -> None:
+    """The default plus both shipped overrides stay declared through the mechanism.
+
+    Pins the issue #21 DoD item that the intentional divergences (#18
+    ``manifest_path``, #19 baked fixture) are expressed as ``SOURCE_SLOT``
+    data, not removed; reverting either to the undeclared state trips
+    ``_validate_source_slot`` at import, and this test names the contract.
+    """
+    from open_kgo.feature_groups.kg.code_build.base import CodeBuildReader
+    from open_kgo.feature_groups.kg.saas_authz.in_process_tuple_store import InProcessTupleStoreReader
+
+    assert KgConnectorReaderBase.SOURCE_SLOT == "locator"
+    assert NetworkxMemoryReader.SOURCE_SLOT == "locator"
+    assert CodeBuildReader.SOURCE_SLOT == "manifest_path"
+    assert InProcessTupleStoreReader.SOURCE_SLOT is None

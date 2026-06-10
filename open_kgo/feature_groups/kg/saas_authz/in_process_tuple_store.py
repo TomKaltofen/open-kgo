@@ -96,6 +96,12 @@ def _validate_tuples(connector_id: str, locator: str, tenant: str, raw: Any) -> 
 class InProcessTupleStoreReader(SaasAuthzReader):
     CONNECTOR_ID: ClassVar[str] = "in_process_tuple_store"
     REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("tenant",),)
+    # Declared baked source (issue #19, enforced per issue #21): the fixture
+    # is pinned via _FIXTURE_PATH and 'locator' is narrowed out below, so this
+    # connector has no source slot. See the "Source-slot convention" in
+    # kg/base.py; _validate_source_slot rejects None while 'locator' is still
+    # advertised, tying this declaration to the narrowing.
+    SOURCE_SLOT: ClassVar[str | None] = None
     # Strict-enum narrowings:
     #   - pagination_style: load_data does not paginate; only "none" honored.
     #   - tenant: the spec-override above already pins allowed_values to

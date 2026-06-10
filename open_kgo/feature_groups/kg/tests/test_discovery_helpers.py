@@ -130,6 +130,10 @@ def test_iter_strict_specs_skips_non_strict_specs() -> None:
     def _exercise() -> list[str]:
         class _MixedStrictness(KgConnectorReaderBase):
             CONNECTOR_ID = "_b3_mixed"
+            # Synthetic mapping drops 'locator', so the source-slot convention
+            # requires declaring the baked shape (same below for every
+            # synthetic reader that replaces PROPERTY_MAPPING wholesale).
+            SOURCE_SLOT = None
             PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
                 "loose": {DefaultOptionKeys.strict_validation: False, "allowed_values": ["a"]},
                 "strict": {DefaultOptionKeys.strict_validation: True, "allowed_values": ["b"]},
@@ -149,6 +153,7 @@ def test_iter_strict_specs_includes_params_mapping_for_param_reader() -> None:
     def _exercise() -> list[tuple[str, str]]:
         class _PR(ParamReader):
             CONNECTOR_ID = "_b3_param_reader"
+            SOURCE_SLOT = None
             PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
                 "prop_strict": {DefaultOptionKeys.strict_validation: True, "allowed_values": ["a"]},
             }
@@ -178,6 +183,7 @@ def test_iter_strict_specs_excludes_params_mapping_for_query_reader() -> None:
     def _exercise() -> list[tuple[str, str]]:
         class _QR(QueryReader):
             CONNECTOR_ID = "_b3_query_reader"
+            SOURCE_SLOT = None
             PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
                 "qr_strict": {DefaultOptionKeys.strict_validation: True, "allowed_values": ["x"]},
             }
@@ -210,6 +216,7 @@ def test_iter_nonstrict_specs_is_the_complement_of_iter_strict_specs() -> None:
     def _exercise() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
         class _PR(ParamReader):
             CONNECTOR_ID = "_b4_nonstrict"
+            SOURCE_SLOT = None
             PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
                 "prop_strict": {DefaultOptionKeys.strict_validation: True, "allowed_values": ["a"]},
                 "prop_loose": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
@@ -237,6 +244,7 @@ def test_reader_string_literals_separates_read_keys_from_declared_only_keys() ->
     def _exercise() -> set[str]:
         class _ProbeReader(KgConnectorReaderBase):
             CONNECTOR_ID = "_b4_literals"
+            SOURCE_SLOT = None
             PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
                 # Declared but never read in any method body below.
                 "zzz_advertised_only": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
@@ -280,6 +288,7 @@ def test_effective_unconsumed_waivers_unions_across_mro() -> None:
 
     def _exercise() -> set[str]:
         class _FamilyBase(KgConnectorReaderBase):
+            SOURCE_SLOT = None
             PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
                 "family_key": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
                 "concrete_key": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
@@ -324,12 +333,14 @@ def test_surface_honesty_disposition_flags_a_lie_and_a_waiver_clears_it() -> Non
     def _exercise() -> tuple[list[str], list[str]]:
         class _LyingReader(KgConnectorReaderBase):
             CONNECTOR_ID = "_b4_lie"
+            SOURCE_SLOT = None
             PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
                 "zzz_never_read": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
             }
 
         class _WaivedReader(KgConnectorReaderBase):
             CONNECTOR_ID = "_b4_waived"
+            SOURCE_SLOT = None
             PROPERTY_MAPPING: ClassVar[dict[str, Any]] = {
                 "zzz_never_read": {DefaultOptionKeys.strict_validation: False, DefaultOptionKeys.default: None},
             }
