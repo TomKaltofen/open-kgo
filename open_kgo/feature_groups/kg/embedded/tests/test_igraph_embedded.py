@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-import pytest
 
 from mloda.user import Feature, Options
 
@@ -92,13 +91,6 @@ class TestIGraphEmbeddedReader(EmbeddedContractTestBase):
         )
         rows = run_query("igraph_embedded", self.valid_credentials()["igraph_embedded"], feat)
         assert sorted(r["node"] for r in rows) == ["bob", "carol"]
-
-    def test_http_locator_rejected(self) -> None:
-        """Remote schemes must be refused, like the other file-backed readers."""
-        cls = self.connector_reader_class()
-        creds = {cls.CONNECTOR_ID: {"locator": "http://example.com/evil.gml"}}
-        with pytest.raises(ValueError, match="scheme"):
-            cls.connect(creds)
 
     def test_directed_neighbors_are_out_successors_only(self) -> None:
         """On a DIRECTED graph, neighbors(mode="out") yields successors only.

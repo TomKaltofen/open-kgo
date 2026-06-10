@@ -97,13 +97,6 @@ class TestRdfLibSparqlReader(RdfContractTestBase):
         rows = run_query("rdflib_sparql", slot, feat)
         assert len(rows) == 2
 
-    def test_http_locator_rejected(self) -> None:
-        """connect() must refuse remote schemes (no network IO at fetch time)."""
-        cls = self.connector_reader_class()
-        creds = {cls.CONNECTOR_ID: {"locator": "http://example.com/evil.ttl"}}
-        with pytest.raises(ValueError, match="scheme"):
-            cls.connect(creds)
-
     def test_windows_drive_locator_passes_scheme_guard(self) -> None:
         """Windows-style drive letter prefixes must not be flagged as remote schemes.
 

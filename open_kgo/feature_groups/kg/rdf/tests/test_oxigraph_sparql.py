@@ -132,13 +132,6 @@ class TestOxigraphSparqlReader(RdfContractTestBase):
         rdflib_key_sets = sorted(tuple(sorted(row)) for row in rdflib_rows)
         assert ox_key_sets == rdflib_key_sets
 
-    def test_http_locator_rejected(self) -> None:
-        """connect() must refuse remote schemes (no network IO at fetch time)."""
-        cls = self.connector_reader_class()
-        creds = {cls.CONNECTOR_ID: {"locator": "http://example.com/evil.ttl"}}
-        with pytest.raises(ValueError, match="scheme"):
-            cls.connect(creds)
-
     def test_missing_locator_file_is_typed(self) -> None:
         """A ``locator`` pointing at a non-existent file raises ``FixtureLoadError``."""
         cls = self.connector_reader_class()

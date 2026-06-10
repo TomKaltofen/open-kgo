@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-import pytest
 
 from mloda.user import Feature, Options
 
@@ -66,15 +65,3 @@ class TestNetworkxEmbeddedReader(EmbeddedContractTestBase):
         )
         rows = run_query("networkx_embedded", self.valid_credentials()["networkx_embedded"], feat)
         assert sorted(r["node"] for r in rows) == ["bob", "carol"]
-
-    def test_http_locator_rejected(self) -> None:
-        """Remote schemes must be refused, like the other file-backed readers.
-
-        networkx's loaders only open local paths, so a remote locator could
-        never fetch anyway — but rejecting it up front keeps the file-only
-        contract uniform and the error message consistent across families.
-        """
-        cls = self.connector_reader_class()
-        creds = {cls.CONNECTOR_ID: {"locator": "http://example.com/evil.gml"}}
-        with pytest.raises(ValueError, match="scheme"):
-            cls.connect(creds)

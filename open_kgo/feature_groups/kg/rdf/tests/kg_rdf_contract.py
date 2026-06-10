@@ -7,7 +7,6 @@ concrete plugin.
 
 from __future__ import annotations
 
-from mloda.provider import HashableDict
 from mloda.user import Feature, Options
 
 from open_kgo.feature_groups.kg.tests.kg_contract import KgConnectorContractBase
@@ -17,30 +16,14 @@ class RdfContractTestBase(KgConnectorContractBase):
     """Family-specific contract assertions for RDF/SPARQL connectors."""
 
     def test_invalid_result_format_rejected(self) -> None:
-        cls = self.connector_reader_class()
-        slot = dict(next(iter(self.valid_credentials().values())))
-        slot["result_format"] = "application/evil+json"
-        creds = HashableDict({cls.CONNECTOR_ID: slot})
-        from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
-
-        try:
-            ok = cls.is_valid_credentials(creds)
-        except InvalidCredentialShape:
-            return
-        assert ok is False
+        self.assert_strict_enum_value_rejected("result_format", "application/evil+json")
 
     def test_invalid_reasoning_profile_rejected(self) -> None:
-        cls = self.connector_reader_class()
-        slot = dict(next(iter(self.valid_credentials().values())))
-        slot["reasoning_profile"] = "evil-rl"
-        creds = HashableDict({cls.CONNECTOR_ID: slot})
-        from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
+        self.assert_strict_enum_value_rejected("reasoning_profile", "evil-rl")
 
-        try:
-            ok = cls.is_valid_credentials(creds)
-        except InvalidCredentialShape:
-            return
-        assert ok is False
+    def test_remote_locator_rejected(self) -> None:
+        """connect() must refuse remote schemes (no network IO at fetch time)."""
+        self.assert_remote_locator_rejected("http://example.com/evil.ttl")
 
     def test_query_text_required_for_load(self) -> None:
         """build_query must raise ValueError when feature.options.context lacks query_text."""

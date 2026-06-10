@@ -97,19 +97,6 @@ class TestNetworkxMemoryReader(AgentMemoryContractTestBase):
         with pytest.raises(UnknownMemoryScopeError):
             NetworkxMemoryReader.connect(creds)
 
-    def test_remote_locator_rejected(self) -> None:
-        """A ``http://``/``https://`` locator must be rejected at connect time.
-
-        Mirrors the rdflib reader's URI-scheme guard from PR #7 so a
-        copy-pasted URL surfaces as a typed ``FixtureLoadError`` instead of
-        a confusing ``FileNotFoundError`` against the URL-as-relative-path.
-        """
-        slot = dict(self.valid_credentials()["networkx_memory"])
-        slot["locator"] = "http://example.invalid/memories.json"
-        creds = HashableDict({"networkx_memory": slot})
-        with pytest.raises(FixtureLoadError):
-            NetworkxMemoryReader.connect(creds)
-
     def test_missing_locator_file_is_typed(self) -> None:
         """A ``locator`` pointing at a non-existent file raises ``FixtureLoadError``."""
         slot = dict(self.valid_credentials()["networkx_memory"])

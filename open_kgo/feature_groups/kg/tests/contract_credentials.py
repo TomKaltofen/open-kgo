@@ -27,6 +27,47 @@ from open_kgo.feature_groups.kg.tests.contract_adapters import KgContractAdapter
 class CredentialContract(KgContractAdapterBase):
     """Contract tests for the credential-slot surface of a concrete KG plugin."""
 
+    def assert_strict_enum_value_rejected(self, key: str, invalid_value: Any) -> None:
+        """Shared body for the per-family "invalid <enum key> rejected" tests.
+
+        Builds a valid slot, plants ``invalid_value`` under ``key``, and
+        asserts the matcher rejects it (``False``) or raises
+        ``InvalidCredentialShape``. Five family contract bases used to spell
+        this 10-line block verbatim per enum key; they now declare one-line
+        tests over this helper, so a new strict-enum key costs one line and
+        cannot drift from the canonical rejection shape.
+        """
+        cls = self.connector_reader_class()
+        slot = dict(next(iter(self.valid_credentials().values())))
+        slot[key] = invalid_value
+        creds = HashableDict({cls.CONNECTOR_ID: slot})
+        try:
+            ok = cls.is_valid_credentials(creds)
+        except InvalidCredentialShape:
+            return
+        assert ok is False, f"{cls.__name__}.is_valid_credentials accepted {key}={invalid_value!r}"
+
+    def assert_remote_locator_rejected(self, url: str = "http://example.invalid/remote.fixture") -> None:
+        """Shared body for the per-family "http/https locator rejected" tests.
+
+        File-backed connectors must refuse remote schemes at ``connect()``
+        time (no network IO at fetch time; PR #7's rdflib guard, since
+        centralised in ``kg.fixtures``). A copy-pasted URL then surfaces as a
+        typed error naming the scheme instead of a confusing
+        ``FileNotFoundError`` against the URL-as-relative-path. Six concrete
+        test classes used to carry this body; the file-backed family contract
+        bases now declare it once and every current and future concrete in
+        those families inherits the check. The valid slot is used as the
+        starting point so ``REQUIRED_KEYS`` validation passes and the scheme
+        guard is the check that actually fires.
+        """
+        cls = self.connector_reader_class()
+        slot = dict(next(iter(self.valid_credentials().values())))
+        assert "locator" in slot, f"{cls.__name__}: assert_remote_locator_rejected needs a locator-backed slot."
+        slot["locator"] = url
+        with pytest.raises(ValueError, match="scheme"):
+            cls.connect(HashableDict({cls.CONNECTOR_ID: slot}))
+
     def test_credentials_match_connector_id(self) -> None:
         """is_valid_credentials returns True when CONNECTOR_ID slot is present and valid."""
         creds = HashableDict(self.valid_credentials())

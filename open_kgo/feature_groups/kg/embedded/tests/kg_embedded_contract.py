@@ -27,6 +27,15 @@ class EmbeddedContractTestBase(KgConnectorContractBase):
         """
         return "__kg_embedded_absent_start_node__"
 
+    def test_remote_locator_rejected(self) -> None:
+        """Remote schemes must be refused, like the other file-backed readers.
+
+        The embedded loaders only open local paths, so a remote locator could
+        never fetch anyway, but rejecting it up front keeps the file-only
+        contract uniform and the error message consistent across families.
+        """
+        self.assert_remote_locator_rejected("http://example.com/evil.gml")
+
     def test_invalid_operation_rejected(self) -> None:
         """Strict-enum validation on ``operation`` rejects unknown values via build_params.
 

@@ -101,12 +101,6 @@ class TestGrandCypherReader(NetworkPropertyGraphContractTestBase):
         rows = run_query("grand_cypher", slot, feat)
         assert len(rows) == 2
 
-    def test_http_locator_rejected(self) -> None:
-        cls = self.connector_reader_class()
-        creds = {cls.CONNECTOR_ID: {"locator": "http://example.com/evil.gml"}}
-        with pytest.raises(ValueError, match="scheme"):
-            cls.connect(creds)
-
     def test_typed_relationship_match_returns_pairs(self) -> None:
         """``[:MANAGES]`` matches both fixture edges via the edge-label to ``__labels__`` mapping.
 
