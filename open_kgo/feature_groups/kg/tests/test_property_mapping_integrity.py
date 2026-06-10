@@ -653,6 +653,23 @@ def test_source_slot_invariant_rejects_baked_declaration_with_locator_advertised
                 SOURCE_SLOT = None
 
 
+def test_source_slot_invariant_rejects_waived_source_slot() -> None:
+    """Waiving the declared SOURCE_SLOT as unconsumed fails: the reader admits it never reads it.
+
+    This closes the one concrete escape from the convention: keep ``locator``
+    advertised (so the membership check passes), waive it via
+    ``_WAIVED_UNCONSUMED_KEYS`` (so the surface-honesty contract passes), and
+    let some other key serve as the de-facto address. The declaration must
+    point at a key the reader actually consumes, or be ``None``.
+    """
+    with clean_kg_subclass_registry():
+        with pytest.raises(ValueError, match="waived as unconsumed"):
+
+            class _WaivedSlot(NetworkxMemoryReader):
+                CONNECTOR_ID = "_invariant_test_waived_slot"
+                _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"locator"})
+
+
 def test_source_slot_invariant_rejects_non_string_declaration() -> None:
     """A non-str, non-None SOURCE_SLOT is a type error caught at class definition."""
     with clean_kg_subclass_registry():

@@ -578,12 +578,19 @@ def test_source_slot_declaration_matches_catalog() -> None:
         f"catalog docstring) or align the connector with an existing slot name."
     )
 
-    mismatched = [
-        f"{case.connector_id}: CASES tags locator_key={case.locator_key!r} but the reader declares "
-        f"{_declared_locator_tag(readers_by_id[case.connector_id])!r}"
-        for case in CASES
-        if case.locator_key != _declared_locator_tag(readers_by_id[case.connector_id])
-    ]
+    mismatched: list[str] = []
+    for case in CASES:
+        reader = readers_by_id.get(case.connector_id)
+        if reader is None:
+            # A CASES entry naming a connector discovery cannot find is a ghost;
+            # test_registry_covers_all_discovered_connectors reports that
+            # readably, so skip it here rather than dying on a KeyError.
+            continue
+        declared = _declared_locator_tag(reader)
+        if case.locator_key != declared:
+            mismatched.append(
+                f"{case.connector_id}: CASES tags locator_key={case.locator_key!r} but the reader declares {declared!r}"
+            )
     assert not mismatched, "CASES locator_key tags drifted from SOURCE_SLOT declarations:\n" + "\n".join(mismatched)
 
 

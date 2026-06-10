@@ -47,7 +47,11 @@ cross-family catalog test reads the declaration as data and fails on any
 spelling outside its known vocabulary
 (``test_source_slot_declaration_matches_catalog`` in
 ``tests/test_kg_families_e2e.py``), so a fourth spelling cannot creep in
-silently.
+silently. The guarantee is scoped: it stops a silent drop, rename, or
+unconsumed-waiver of the *declared* slot (a declared ``SOURCE_SLOT`` may not
+appear in ``_WAIVED_UNCONSUMED_KEYS``); it cannot decide that some *other*
+advertised key has become the de-facto address, which stays a review judgement
+the asymmetry catalog makes visible.
 """
 
 from __future__ import annotations
@@ -438,8 +442,13 @@ class KgConnectorReaderBase(ReadDB):
           ``locator`` credential would be a surface lie (the honest-credential
           rule), so the declaration and the mapping must drop it together.
 
-        A non-``None``, non-``str`` value is a type error caught here rather
-        than later in a confusing membership check.
+        A declared slot listed in ``_WAIVED_UNCONSUMED_KEYS`` (anywhere in the
+        MRO) is also rejected: waiving the source slot as unconsumed means the
+        reader does not actually read it, so the declaration would lie while
+        some other key serves as the de-facto address. That is the one
+        concrete way a fourth spelling could otherwise creep in behind a green
+        gate. A non-``None``, non-``str`` value is a type error caught here
+        rather than later in a confusing membership check.
         """
         slot_name = cls.SOURCE_SLOT
         if slot_name is None:
@@ -461,6 +470,15 @@ class KgConnectorReaderBase(ReadDB):
                 f"Every connector must declare how a caller points it at its data: keep the "
                 f"declared slot in PROPERTY_MAPPING, override SOURCE_SLOT to the renamed key, "
                 f"or declare SOURCE_SLOT = None if the source is baked into the reader."
+            )
+        waived = {key for klass in cls.__mro__ for key in klass.__dict__.get("_WAIVED_UNCONSUMED_KEYS", ())}
+        if slot_name in waived:
+            raise ValueError(
+                f"{cls.__name__}.SOURCE_SLOT={slot_name!r} is waived as unconsumed in "
+                f"_WAIVED_UNCONSUMED_KEYS: the reader does not read its own declared source slot, "
+                f"so the declaration lies about how a caller points it at its data. Override "
+                f"SOURCE_SLOT to the key actually consumed, or declare SOURCE_SLOT = None if the "
+                f"source is baked into the reader."
             )
 
     def load(self, features: FeatureSet) -> Any:
