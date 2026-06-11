@@ -4,16 +4,22 @@
 
 # open-kgo
 
-Open Knowledge Graphs and Ontologies plugin for [mloda](https://github.com/mloda-ai/mloda). Visit [mloda.ai](https://mloda.ai) for an overview and business context, the [GitHub repository](https://github.com/mloda-ai/mloda) for technical context, or the [documentation](https://mloda-ai.github.io/mloda/) for detailed guides.
+Open Knowledge Graphs and Ontologies plugin for [mloda](https://github.com/mloda-ai/mloda): nine connector families covering the knowledge-graph landscape, from SPARQL endpoints to SBOMs to agent memory, all behind one declarative `Feature` interface. Every connector and demo runs offline against in-memory libraries or committed fixtures. No Docker, no network.
 
-## Related Repositories
+## At a glance
 
-- **[mloda](https://github.com/mloda-ai/mloda)**: The core library for open data access. Declaratively define what data you need, not how to get it.
-- **[mloda-registry](https://github.com/mloda-ai/mloda-registry)**: The central hub for discovering and sharing mloda plugins.
+| Section | What you'll find |
+|---|---|
+| [Quickstart](#quickstart) | Run a SPARQL query against a shipped sample file in under a minute |
+| [The nine connector families](#the-nine-connector-families) | The core of this repo: a 9-family KG connector taxonomy with two plugins each |
+| [Demos](#demos) | Three marimo notebooks and two evaluation harnesses, all offline |
+| [Data and acknowledgments](#data-and-acknowledgments) | Where the sample data comes from |
+| [Development setup](#development-setup) | uv, tox, and the individual checks |
+| [Related repositories and documentation](#related-repositories-and-documentation) | mloda core, the plugin registry, and development guides |
 
 ## Quickstart
 
-Install the connectors and run a SPARQL query against the Turtle sample shipped in this repo — no Docker, no network:
+Install the connectors and run a SPARQL query against the Turtle sample shipped in this repo:
 
 ```bash
 uv sync --extra kg-all
@@ -51,11 +57,25 @@ for partition in partitions:
         print(row[feature.name])
 ```
 
-Swap `rdflib_sparql` for any of the nine connector families — same `Feature` → `mloda.run_all` shape, different reader.
+Swap `rdflib_sparql` for any of the nine connector families below: same `Feature` to `mloda.run_all` shape, different reader.
 
-## KG connectors
+## The nine connector families
 
-`open_kgo/feature_groups/kg/` ships a 9-family knowledge-graph connector taxonomy (`network_pg`, `rdf`, `embedded`, `rest_public`, `lineage`, `code_build`, `saas_authz`, `agent_memory`, `citation_rest`), with two concrete plugins per family running against in-memory libraries or local file fixtures. See `open_kgo/feature_groups/kg/README.md` for the family map.
+`open_kgo/feature_groups/kg/` ships a connector taxonomy derived from a 103-system survey. Each family is a shared reader and feature-group base plus **two** concrete plugins running against in-memory libraries or local file fixtures:
+
+| Family | What it connects to | Concrete plugins |
+|---|---|---|
+| `network_pg` | Property-graph databases with a vendor query language (Neo4j, Memgraph, Neptune, ...) | `KuzuCypherReader`, `GrandCypherReader` |
+| `rdf` | RDF triple stores queried with SPARQL | `RdfLibSparqlReader`, `OxigraphSparqlReader` |
+| `embedded` | In-process graph libraries with no network endpoint | `NetworkxEmbeddedReader`, `IGraphEmbeddedReader` |
+| `rest_public` | Public REST (non-SPARQL) KG APIs (OpenAlex, ConceptNet, STRING, ...) | `FileFixtureRestReader`, `FileFixturePagedRestReader` |
+| `lineage` | Metadata and data-lineage graphs (dbt, OpenLineage, DataHub, ...) | `DbtManifestReader`, `OpenLineageReader` |
+| `code_build` | Code, build, and SBOM dependency graphs (CycloneDX, SPDX, ...) | `CycloneDxSbomReader`, `SpdxSbomReader` |
+| `saas_authz` | SaaS and authorization tuple stores (OpenFGA, SpiceDB, Microsoft Graph, ...) | `InProcessTupleStoreReader`, `PaginatedTupleStoreReader` |
+| `agent_memory` | LLM agent memory and GraphRAG graphs (Letta, Zep, Mem0, ...) | `NetworkxMemoryReader`, `GraphWalkMemoryReader` |
+| `citation_rest` | Citation and scientific REST APIs (Reactome, OpenAlex citations, ...) | `FileFixtureCitationReader`, `PaginatedCitationReader` |
+
+See [`open_kgo/feature_groups/kg/README.md`](open_kgo/feature_groups/kg/README.md) for the full family map, the plugin anatomy, and what the prototype does and does not validate.
 
 Install all KG extras with: `uv sync --extra kg-all`.
 
@@ -98,7 +118,7 @@ To run against the full MetaQA benchmark (licensed under
 [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/legalcode), not
 redistributed here), see [`demo/data/README.md`](demo/data/README.md).
 
-## Development Setup with uv
+## Development setup
 
 **Install uv** (if not already installed):
 ```bash
@@ -128,12 +148,9 @@ mypy --strict --ignore-missing-imports .
 bandit -c pyproject.toml -r -q .
 ```
 
-## Related Documentation
+## Related repositories and documentation
 
-Guides for plugin development can be found in mloda-registry:
-
-- https://github.com/mloda-ai/mloda-registry/tree/main/docs/guides/
-
-Claude Code users can leverage the skills in mloda-registry for assisted plugin development:
-
-- https://github.com/mloda-ai/mloda-registry/tree/main/.claude/skills/
+- **[mloda](https://github.com/mloda-ai/mloda)**: The core library for open data access. Declaratively define what data you need, not how to get it. See [mloda.ai](https://mloda.ai) for an overview and business context and the [documentation](https://mloda-ai.github.io/mloda/) for detailed guides.
+- **[mloda-registry](https://github.com/mloda-ai/mloda-registry)**: The central hub for discovering and sharing mloda plugins.
+- **[Plugin development guides](https://github.com/mloda-ai/mloda-registry/tree/main/docs/guides/)**: How to build FeatureGroups, ComputeFrameworks, and Extenders.
+- **[Claude Code skills](https://github.com/mloda-ai/mloda-registry/tree/main/.claude/skills/)**: Assisted plugin development for Claude Code users.
