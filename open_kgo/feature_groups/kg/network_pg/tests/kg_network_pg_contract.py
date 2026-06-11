@@ -7,16 +7,8 @@ from open_kgo.feature_groups.kg.tests.kg_contract import KgConnectorContractBase
 
 class NetworkPropertyGraphContractTestBase(KgConnectorContractBase):
     def test_invalid_read_consistency_rejected(self) -> None:
-        from mloda.provider import HashableDict
+        self.assert_strict_enum_value_rejected("read_consistency", "evil")
 
-        from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
-
-        cls = self.connector_reader_class()
-        slot = dict(next(iter(self.valid_credentials().values())))
-        slot["read_consistency"] = "evil"
-        creds = HashableDict({cls.CONNECTOR_ID: slot})
-        try:
-            ok = cls.is_valid_credentials(creds)
-        except InvalidCredentialShape:
-            return
-        assert ok is False
+    def test_remote_locator_rejected(self) -> None:
+        """Remote schemes must be refused, like the other file-backed readers."""
+        self.assert_remote_locator_rejected("http://example.com/evil.gml")

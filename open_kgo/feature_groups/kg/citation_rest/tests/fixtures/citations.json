@@ -1,0 +1,7 @@
+{
+  "W1": {"stableId": "W1", "entityType": "article", "title": "Seminal work", "references": ["W2", "W3", "W4"]},
+  "W2": {"stableId": "W2", "entityType": "article", "title": "Follow-up", "references": ["W5"]},
+  "W3": {"stableId": "W3", "entityType": "book", "title": "Reference book", "references": []},
+  "W4": {"stableId": "W4", "entityType": "article", "title": "Related study", "references": []},
+  "W5": {"stableId": "W5", "entityType": "article", "title": "Foundational paper", "references": []}
+}

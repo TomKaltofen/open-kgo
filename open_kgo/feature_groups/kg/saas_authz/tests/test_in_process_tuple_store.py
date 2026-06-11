@@ -18,6 +18,7 @@ from open_kgo.feature_groups.kg.saas_authz.in_process_tuple_store import (
 from open_kgo.feature_groups.kg.saas_authz.tests.kg_saas_authz_contract import (
     SaasAuthzContractTestBase,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 class TestInProcessTupleStoreReader(SaasAuthzContractTestBase):
@@ -27,17 +28,14 @@ class TestInProcessTupleStoreReader(SaasAuthzContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "in_process_tuple_store": {
-                "tenant": "tenant_a",
-                "api_version": "v1.0",
-                "entity_type": "document",
-                "relationship_type": "viewer",
-                "consistency_mode": "minimize_latency",
-                "pagination_style": "none",
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(),
+            tenant="tenant_a",
+            api_version="v1.0",
+            entity_type="document",
+            relationship_type="viewer",
+            result_limit=100,
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:

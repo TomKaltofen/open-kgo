@@ -6,8 +6,10 @@ the embedded family has no network endpoint). The family base declares
 already in memory) are valid; concrete plugins set ``REQUIRED_KEYS``
 explicitly when their backend needs a path.
 
-PROTOTYPE NOTE: ``read_only`` and ``max_threads`` are advisory-only. The
-concrete ``NetworkxEmbeddedReader`` validates them at the property layer
-but never enforces them at runtime; NetworkX has no read-only mode and
-the reader is single-threaded.
+PROTOTYPE NOTE: two in-memory graph libraries back this family —
+``NetworkxEmbeddedReader`` (``networkx``) and ``IGraphEmbeddedReader``
+(``igraph``) — running the same ``nodes`` / ``edges`` / ``neighbors``
+operations against the same committed GML fixtures (backend variety, not new
+surface). ``read_only`` and ``max_threads`` are advisory-only on both: they
+are validated at the property layer but never enforced at runtime.
 """

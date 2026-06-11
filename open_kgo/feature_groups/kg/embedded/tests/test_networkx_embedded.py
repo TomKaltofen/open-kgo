@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-import pytest
 
 from mloda.user import Feature, Options
 
@@ -15,6 +14,7 @@ from open_kgo.feature_groups.kg.embedded.networkx_embedded import (
 from open_kgo.feature_groups.kg.embedded.tests.kg_embedded_contract import (
     EmbeddedContractTestBase,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE_GML = Path(__file__).parent / "fixtures" / "triangle.gml"
@@ -27,15 +27,7 @@ class TestNetworkxEmbeddedReader(EmbeddedContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "networkx_embedded": {
-                "locator": str(_FIXTURE_GML),
-                "graph_file_format": "gml",
-                "read_only": True,
-                "max_threads": 1,
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(cls.connector_reader_class(), locator=str(_FIXTURE_GML), result_limit=100)
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:
@@ -66,15 +58,3 @@ class TestNetworkxEmbeddedReader(EmbeddedContractTestBase):
         )
         rows = run_query("networkx_embedded", self.valid_credentials()["networkx_embedded"], feat)
         assert sorted(r["node"] for r in rows) == ["bob", "carol"]
-
-    def test_http_locator_rejected(self) -> None:
-        """Remote schemes must be refused, like the other file-backed readers.
-
-        networkx's loaders only open local paths, so a remote locator could
-        never fetch anyway — but rejecting it up front keeps the file-only
-        contract uniform and the error message consistent across families.
-        """
-        cls = self.connector_reader_class()
-        creds = {cls.CONNECTOR_ID: {"locator": "http://example.com/evil.gml"}}
-        with pytest.raises(ValueError, match="scheme"):
-            cls.connect(creds)

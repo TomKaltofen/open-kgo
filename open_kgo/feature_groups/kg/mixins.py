@@ -18,11 +18,12 @@ defaults; lineage / code_build use per-call params).
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Mapping
-
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
+import re
+from typing import Any, ClassVar, Mapping, Sequence, TypeVar
 
 from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
+from open_kgo.feature_groups.kg.spec import property_spec
+from open_kgo.feature_groups.kg.validation import parse_bounded_int
 
 # Single source of truth for pagination styles: each value carries a family
 # tag and a docstring. The PaginationMixin spec dict and the cursor-family set
@@ -44,25 +45,99 @@ _CURSOR_FAMILY_STYLES: frozenset[str] = frozenset(
 )
 
 
+# Exact token grammar for parse_offset_cursor: "offset:" followed by one or
+# more ASCII decimal digits. fullmatch() anchors both ends.
+_OFFSET_CURSOR_RE = re.compile(r"offset:[0-9]+")
+
+
+def parse_offset_cursor(connector_id: str, cursor_token: Any) -> int:
+    """Parse an ``"offset:<N>"`` cursor token into a non-negative integer offset.
+
+    Shared by the cursor-paginating concretes (``PaginatedCitationReader``,
+    ``PaginatedTupleStoreReader``) so the token convention lives in one place
+    alongside ``PaginationMixin``. ``None`` (the first-page case) maps to
+    offset 0. The grammar is exactly ``^offset:[0-9]+$``: after the
+    ``offset:`` prefix the remainder must be one or more ASCII decimal
+    digits. Leading zeros are plain decimal (``"offset:007"`` is 7), but
+    signs (``"offset:+5"``), whitespace (``"offset: 5"``), underscore
+    separators (``"offset:5_0"``, which a bare ``int()`` would silently parse
+    as 50), and non-ASCII digits are all malformed and raise
+    ``InvalidCredentialShape``, so a hand-typed cursor surfaces a typed error
+    rather than silently restarting from the first page or landing on the
+    wrong offset.
+    """
+    if cursor_token is None:
+        return 0
+    token = str(cursor_token)
+    if _OFFSET_CURSOR_RE.fullmatch(token):
+        return int(token.removeprefix("offset:"))
+    raise InvalidCredentialShape(
+        f"{connector_id}: cursor_token {cursor_token!r} is malformed; expected 'offset:<N>' "
+        f"with N one or more ASCII decimal digits."
+    )
+
+
+def parse_page_size(connector_id: str, value: Any, default: int) -> int:
+    """Validate and return a positive-int ``page_size``, falling back to ``default`` when unset.
+
+    Shared by the cursor/page-paginating concretes (``PaginatedCitationReader``,
+    ``FileFixturePagedRestReader``, ``PaginatedTupleStoreReader``) so the
+    runtime guard lives in one place. ``page_size`` is ``strict_validation=False``
+    by family design (no closed enum), so ``_validate_shape`` never sees it;
+    these are the first concretes to honor the value and must guard it
+    themselves. ``None`` (absent / opt-out) maps to ``default``; otherwise the
+    value must be a non-bool ``int >= 1``, mirroring ``_validate_result_limit``,
+    bool is rejected explicitly (it is an ``int`` subclass, but a page size of
+    ``True``/``False`` is a caller mistake), and strings / floats / ``< 1``
+    raise ``InvalidCredentialShape`` so a typo surfaces a typed error rather
+    than a raw ``ValueError`` mid-load or a silently wrong slice.
+    """
+    return parse_bounded_int(connector_id, "page_size", value, min_value=1, default=default)
+
+
+_ItemT = TypeVar("_ItemT")
+
+
+def cursor_page_slice(
+    connector_id: str,
+    items: Sequence[_ItemT],
+    *,
+    cursor_token: Any,
+    page_size_value: Any,
+    result_limit: int,
+    default_page_size: int = 100,
+) -> list[_ItemT]:
+    """Shared cursor-pagination epilogue: decode the token, guard the size, slice the page.
+
+    The two cursor-paginating concretes (``PaginatedCitationReader``,
+    ``PaginatedTupleStoreReader``) used to spell the same three lines each:
+    ``parse_offset_cursor`` + ``parse_page_size`` + the
+    ``[offset : offset + page_size][:result_limit]`` double slice. Centralising
+    the epilogue keeps the token convention, the size guard, and the
+    result-limit cap in one place next to ``PaginationMixin``.
+
+    ``items`` must already be deterministically ordered (both call sites sort
+    first); the positional ``offset:<N>`` token indexes into that order, so an
+    unsorted input would make a saved token return arbitrary rows. The caller
+    passes the raw ``cursor_token`` param and ``page_size`` slot values; the
+    typed-error guards in the two parse helpers fire from here unchanged.
+    """
+    offset = parse_offset_cursor(connector_id, cursor_token)
+    page_size = parse_page_size(connector_id, page_size_value, default_page_size)
+    return list(items[offset : offset + page_size][:result_limit])
+
+
 _ENTITY_FILTER_KEYS: dict[str, Any] = {
-    "entity_type": {
-        "explanation": "Object type for the request (e.g. 'document', 'group').",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: None,
-    },
-    "relationship_type": {
-        "explanation": "Relation/permission type (e.g. 'viewer', 'transitiveMembers').",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: None,
-    },
-    "expand_paths": {
-        "explanation": "Relationship/property paths to expand (e.g. OData $expand or Zanzibar Expand).",
-        DefaultOptionKeys.context: True,
-        DefaultOptionKeys.strict_validation: False,
-        DefaultOptionKeys.default: (),
-    },
+    "entity_type": property_spec(
+        "Object type for the request (e.g. 'document', 'group').",
+    ),
+    "relationship_type": property_spec(
+        "Relation/permission type (e.g. 'viewer', 'transitiveMembers').",
+    ),
+    "expand_paths": property_spec(
+        "Relationship/property paths to expand (e.g. OData $expand or Zanzibar Expand).",
+        default=(),
+    ),
 }
 
 
@@ -113,28 +188,22 @@ class PaginationMixin:
     """
 
     PROPERTY_MAPPING_DELTA: ClassVar[dict[str, Any]] = {
-        "pagination_style": {
-            "explanation": "Pagination strategy used by the remote endpoint.",
-            "allowed_values": {style: explanation for style, (_, explanation) in _PAGINATION_STYLES.items()},
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.default: "none",
-        },
-        "page_size": {
-            "explanation": "Records per page; bounded by remote per-system maximum.",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: 100,
-        },
+        "pagination_style": property_spec(
+            "Pagination strategy used by the remote endpoint.",
+            strict=True,
+            allowed_values={style: explanation for style, (_, explanation) in _PAGINATION_STYLES.items()},
+            default="none",
+        ),
+        "page_size": property_spec(
+            "Records per page; bounded by remote per-system maximum.",
+            default=100,
+        ),
     }
 
     PARAMS_MAPPING_DELTA: ClassVar[dict[str, Any]] = {
-        "cursor_token": {
-            "explanation": "Opaque cursor for pagination_style=cursor; supplied by caller on continuation.",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: None,
-        },
+        "cursor_token": property_spec(
+            "Opaque cursor for pagination_style=cursor; supplied by caller on continuation.",
+        ),
     }
 
     @classmethod
@@ -184,31 +253,26 @@ class TraversalMixin:
     """
 
     PARAMS_MAPPING_DELTA: ClassVar[dict[str, Any]] = {
-        "lineage_direction": {
-            "explanation": "Direction of the lineage walk relative to the start asset.",
-            "allowed_values": {
+        "lineage_direction": property_spec(
+            "Direction of the lineage walk relative to the start asset.",
+            strict=True,
+            allowed_values={
                 "UPSTREAM": "Walk towards sources/dependencies.",
                 "DOWNSTREAM": "Walk towards dependents/consumers.",
                 "BOTH": "Walk both directions.",
                 "ancestors": "Reactome-style ancestors traversal.",
                 "descendants": "Reactome-style descendants traversal.",
             },
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.default: "BOTH",
-        },
-        "upstream_depth": {
-            "explanation": "Depth limit for upstream traversal (independent of downstream).",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: 1,
-        },
-        "downstream_depth": {
-            "explanation": "Depth limit for downstream traversal (independent of upstream).",
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: False,
-            DefaultOptionKeys.default: 0,
-        },
+            default="BOTH",
+        ),
+        "upstream_depth": property_spec(
+            "Depth limit for upstream traversal (independent of downstream).",
+            default=1,
+        ),
+        "downstream_depth": property_spec(
+            "Depth limit for downstream traversal (independent of upstream).",
+            default=0,
+        ),
     }
 
 
@@ -222,17 +286,16 @@ class InferenceMixin:
     """
 
     PROPERTY_MAPPING_DELTA: ClassVar[dict[str, Any]] = {
-        "reasoning_profile": {
-            "explanation": "Inference profile / rule set the engine should apply.",
-            "allowed_values": {
+        "reasoning_profile": property_spec(
+            "Inference profile / rule set the engine should apply.",
+            strict=True,
+            allowed_values={
                 "none": "No inference; raw triples/edges.",
                 "rdfs": "RDFS entailment.",
                 "owl-rl": "OWL 2 RL profile.",
                 "owl-dl": "OWL 2 DL profile.",
                 "custom": "Vendor-specific named ruleset (concrete plugin should validate further).",
             },
-            DefaultOptionKeys.context: True,
-            DefaultOptionKeys.strict_validation: True,
-            DefaultOptionKeys.default: "none",
-        },
+            default="none",
+        ),
     }

@@ -6,9 +6,10 @@ returns the ``components`` list as-is (sliced by ``result_limit``); the
 ``dependencies`` graph is not walked, so all family-base traversal /
 entity-filter per-call keys (``lineage_direction``, ``upstream_depth``,
 ``downstream_depth``, ``entity_type``, ``relationship_type``,
-``expand_paths``) are dropped from this plugin's ``PARAMS_MAPPING``. Setting
-any of them in ``feature.options`` is rejected per-call via the
-``_STRIPPED_PARAMS`` hook on ``ParamReader``.
+``expand_paths``) are dropped from this plugin's ``PARAMS_MAPPING`` (option 1
+of the "Honest credential surface" rule in base.py). Setting any of them in
+``feature.options`` is rejected per-call via the ``_STRIPPED_PARAMS`` hook on
+``ParamReader``.
 """
 
 from __future__ import annotations
@@ -17,11 +18,12 @@ from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.code_build.base import (
     CodeBuildFeatureGroup,
     CodeBuildReader,
 )
-from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
+from open_kgo.feature_groups.kg.fixtures import copy_cached_rows, load_json_fixture
 
 
 class CycloneDxSbomReader(CodeBuildReader):
@@ -45,15 +47,13 @@ class CycloneDxSbomReader(CodeBuildReader):
         return load_json_fixture(cls.CONNECTOR_ID, manifest_path)
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        sbom = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        sbom = connection
 
-        # Slice to result_limit *before* copying so we only copy the rows we
-        # emit; copy_cached_row keeps the shared cached SBOM read-only when a
-        # component is returned to a caller (see ``_connect_from_slot``).
-        components = sbom.get("components", [])[: ctx.result_limit]
-        return [copy_cached_row(c) for c in components]
+        # copy_cached_rows copies only the rows it emits and keeps the shared
+        # cached SBOM read-only when a component is returned to a caller (see
+        # ``_connect_from_slot``).
+        return copy_cached_rows(sbom.get("components", []), ctx.result_limit)
 
 
 class CycloneDxSbomFeatureGroup(CodeBuildFeatureGroup):

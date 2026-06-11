@@ -9,13 +9,16 @@ containing ``page_<N>.json`` files; each file looks like an OpenAlex page:
 The reader walks pages until ``next_cursor`` is null or ``result_limit`` is
 reached.
 
-Surface narrowing:
+Surface narrowing (the "Honest credential surface" rule in base.py):
 
-- ``pagination_style`` is narrowed via ``SUPPORTED_VALUES`` to ``cursor`` only;
-  any other value is rejected at ``is_valid_credentials`` time.
-- ``page_size`` is dropped from ``PROPERTY_MAPPING``; the fixture walker
-  reads whole pages, so a credential setting it would be a surface lie. The
-  closed-world credential check rejects it.
+- ``pagination_style`` is narrowed via ``SUPPORTED_VALUES`` to ``cursor`` only
+  AND listed in ``REQUIRED_KEYS``: any other value is rejected at
+  ``is_valid_credentials`` time, and omission is rejected too (the narrowing
+  only validates keys present in the slot, so without the requirement an
+  omitted key would run the cursor walk under the family default ``none``).
+- ``page_size`` is dropped from ``PROPERTY_MAPPING`` (option 1 of that rule);
+  the fixture walker reads whole pages, so a credential setting it would be a
+  surface lie. The closed-world credential check rejects it.
 - ``cursor_token`` and ``entity_type`` are dropped from ``PARAMS_MAPPING``;
   setting either in ``feature.options`` is rejected per-call via the
   ``_STRIPPED_PARAMS`` hook on ``ParamReader``.
@@ -29,8 +32,8 @@ from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
-from open_kgo.feature_groups.kg.base import narrow_property_mapping
-from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
+from open_kgo.feature_groups.kg.base import LoadContext, narrow_property_mapping
+from open_kgo.feature_groups.kg.fixtures import copy_cached_rows, load_json_fixture
 from open_kgo.feature_groups.kg.rest_public.base import (
     RestPublicFeatureGroup,
     RestPublicReader,
@@ -45,7 +48,12 @@ def _page_index(page_file: Path) -> int:
 
 class FileFixtureRestReader(RestPublicReader):
     CONNECTOR_ID: ClassVar[str] = "file_fixture_rest"
-    REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("locator",),)
+    # pagination_style is REQUIRED (not just narrowed): the family default is
+    # "none", which this reader does not honor, and SUPPORTED_VALUES only
+    # validates keys present in the slot. An omitted pagination_style would
+    # otherwise pass is_valid_credentials and silently run the cursor walk
+    # under a defaulted "none" label.
+    REQUIRED_KEYS: ClassVar[tuple[tuple[str, ...], ...]] = (("locator",), ("pagination_style",))
 
     PROPERTY_MAPPING: ClassVar[dict[str, Any]] = narrow_property_mapping(RestPublicReader.PROPERTY_MAPPING, "page_size")
     PARAMS_MAPPING: ClassVar[dict[str, Any]] = {}
@@ -73,9 +81,8 @@ class FileFixtureRestReader(RestPublicReader):
         return path
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        path = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        path = connection
 
         pages_dir = path if path.is_dir() else path.parent
         # Sort numerically on the ``<N>`` in ``page_<N>.json``: a lexical
@@ -91,12 +98,11 @@ class FileFixtureRestReader(RestPublicReader):
             # the same pages on every load. The glob
             # itself is cheap and stays uncached.
             body = load_json_fixture(cls.CONNECTOR_ID, page_file)
-            for row in body.get("results", []):
-                # ``body`` is the cached page dict; copy_cached_row keeps the
-                # cache read-only when the row is handed to a downstream consumer.
-                rows.append(copy_cached_row(row))
-                if len(rows) >= ctx.result_limit:
-                    return rows
+            # ``body`` is the cached page dict; copy_cached_rows keeps the
+            # cache read-only when rows are handed to a downstream consumer.
+            rows.extend(copy_cached_rows(body.get("results", []), ctx.result_limit - len(rows)))
+            if len(rows) >= ctx.result_limit:
+                return rows
             if not body.get("meta", {}).get("next_cursor"):
                 break
         return rows

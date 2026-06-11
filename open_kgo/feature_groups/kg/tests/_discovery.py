@@ -23,10 +23,13 @@ suite should not.
 
 from __future__ import annotations
 
+import ast
 import gc
 import importlib
+import inspect
 import pkgutil
 import sys
+import textwrap
 from contextlib import contextmanager
 from typing import Any, Iterator, Literal
 
@@ -168,3 +171,82 @@ def iter_strict_specs(
                 continue
             if spec.get(DefaultOptionKeys.strict_validation) is True:
                 yield key, spec, layer_name
+
+
+def iter_nonstrict_specs(
+    reader_class: type[KgConnectorReaderBase],
+) -> Iterator[tuple[str, dict[str, Any], _LayerName]]:
+    """Yield ``(key, spec, layer_name)`` for every NON-strict-validation spec on ``reader_class``.
+
+    The complement of ``iter_strict_specs`` over the same layers, so the
+    surface-honesty contract (non-strict keys) and the strict-enum contract
+    partition the advertised surface without overlap.
+    """
+    layers: list[tuple[_LayerName, dict[str, Any]]] = [
+        ("PROPERTY_MAPPING", reader_class.PROPERTY_MAPPING),
+    ]
+    if issubclass(reader_class, ParamReader):
+        layers.append(("PARAMS_MAPPING", reader_class.PARAMS_MAPPING))
+    for layer_name, mapping in layers:
+        for key, spec in mapping.items():
+            if not isinstance(spec, dict):
+                continue
+            if spec.get(DefaultOptionKeys.strict_validation) is not True:
+                yield key, spec, layer_name
+
+
+def reader_string_literals(reader_class: type[KgConnectorReaderBase]) -> set[str]:
+    """Return the exact string-literal values in any reader method across the kg-package MRO.
+
+    The consumption signal for the surface-honesty contract. AST-collects every
+    string ``Constant`` from the methods of each kg-package class in the MRO
+    (concrete, family bases, mixins, universal base); non-package classes are
+    skipped. A key a reader reads appears as an exact literal (``slot["locator"]``,
+    ``params.get("stable_id")``); a key only *declared* in a mapping is a
+    class-level attribute, absent from method source. Exact set membership means
+    docstrings and error-message fragments cannot masquerade as consumption.
+
+    ``textwrap.dedent`` before ``ast.parse`` strips the method's class
+    indentation; getsource/parse failures are skipped defensively. Caveat: a
+    flush-left multi-line string in a method body defeats dedent and drops that
+    method's literals, but the failure mode is a loud false red build (a key
+    read only there would be flagged), never a silent miss. No shipped method
+    hits it.
+    """
+    prefix = f"{_KG_PACKAGE_NAME}."
+    literals: set[str] = set()
+    for klass in reader_class.__mro__:
+        module = getattr(klass, "__module__", "")
+        if module != _KG_PACKAGE_NAME and not module.startswith(prefix):
+            continue
+        for attr in vars(klass).values():
+            # Unwrap classmethod / staticmethod to the underlying function.
+            func = getattr(attr, "__func__", attr)
+            if not inspect.isfunction(func):
+                continue
+            try:
+                source = textwrap.dedent(inspect.getsource(func))
+            except (OSError, TypeError):
+                continue
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    literals.add(node.value)
+    return literals
+
+
+def effective_unconsumed_waivers(reader_class: type[KgConnectorReaderBase]) -> set[str]:
+    """Union the locally-declared ``_WAIVED_UNCONSUMED_KEYS`` across ``reader_class.__mro__``.
+
+    Merges each class's own set (not the shadowing attribute read) so a family
+    base can waive family-wide keys while a concrete adds its own.
+    """
+    waived: set[str] = set()
+    for klass in reader_class.__mro__:
+        local = klass.__dict__.get("_WAIVED_UNCONSUMED_KEYS")
+        if local:
+            waived |= set(local)
+    return waived

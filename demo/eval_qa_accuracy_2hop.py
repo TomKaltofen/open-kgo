@@ -44,69 +44,32 @@ def title(mo):
     which maps each question to a relation chain by keyword matching against the known
     sample phrasings. A question it cannot classify is skipped, not scored, so the numbers
     reflect parser coverage and traversal correctness together, not traversal quality alone.
+
+    The hop primitives, QA loader, and scoring loop are shared with the other eval
+    notebooks via `demo/qa_eval_lib.py`; this notebook contributes the 2-hop
+    question parser and the hop-chaining strategy.
     """)
     return
 
 
 @app.cell
 def _():
-    import re
     import sys
-    from collections import defaultdict
     from pathlib import Path
 
-    import networkx as nx
-
-    from open_kgo.feature_groups.kg.ontology.registry import OntologyRegistry
-
     DEMO_DIR = Path(__file__).parent
-    DATA_DIR = DEMO_DIR / "data"
     _ROOT = DEMO_DIR.parent
     if str(_ROOT) not in sys.path:
         sys.path.insert(0, str(_ROOT))
-    from demo.data import ensure_data
+    from demo import qa_eval_lib as lib
 
-    ensure_data()
-    ONTOLOGY_YAML = (
-        Path(__file__).parent.parent
-        / "open_kgo"
-        / "feature_groups"
-        / "kg"
-        / "ontology"
-        / "tests"
-        / "fixtures"
-        / "metaqa_ontology.yaml"
-    )
-    QA_2HOP = DATA_DIR / "sample_qa_2hop.txt"
-    GML_FILE = DATA_DIR / "metaqa_sample.gml"
+    graph = lib.load_sample_graph()
 
-    OntologyRegistry._clear()
-    OntologyRegistry.load_file(str(ONTOLOGY_YAML))
-
-    graph: nx.MultiDiGraph = nx.read_gml(str(GML_FILE))
-
-    return (
-        DATA_DIR,
-        DEMO_DIR,
-        GML_FILE,
-        ONTOLOGY_YAML,
-        OntologyRegistry,
-        Path,
-        QA_2HOP,
-        defaultdict,
-        graph,
-        nx,
-        re,
-    )
+    return graph, lib
 
 
 @app.cell
-def graph_info(graph, mo):
-    _types: dict[str, int] = {}
-    for _, _d in graph.nodes(data=True):
-        _t = _d.get("type", "Unknown")
-        _types[_t] = _types.get(_t, 0) + 1
-    _rows = "\n".join(f"| {t} | {c} |" for t, c in sorted(_types.items()))
+def graph_info(graph, lib, mo):
     mo.md(f"""
     **QA-anchored subgraph:** {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges
 
@@ -116,73 +79,32 @@ def graph_info(graph, mo):
 
     | Entity type | Count |
     |---|---|
-    {_rows}
+    {lib.graph_type_rows_md(graph)}
     """)
     return
 
 
 @app.cell
-def _():
+def _(lib):
     # ---------------------------------------------------------------------------
-    # Traversal primitives
-    # ---------------------------------------------------------------------------
-
-    def arch1_hop(g, start: str, relation: str) -> set[str]:
-        """Forward hop — no type checking."""
-        if start not in g:
-            return set()
-        return {t for _, t, d in g.out_edges(start, data=True) if d.get("relation") == relation}
-
-    def arch2_hop(g, start: str, relation: str, namespace: str = "movie") -> set[str]:
-        """Forward hop — ontology-validated domain + range."""
-        from open_kgo.feature_groups.kg.ontology.registry import OntologyRegistry as _OR
-
-        entity_type = g.nodes[start].get("type", "Unknown")
-        if not _OR.is_valid_edge(namespace, entity_type, relation):
-            raise ValueError(f"Ontology violation: '{relation}' from '{entity_type}'")
-        expected_range = _OR.get_range_type(namespace, relation)
-        seen: set[str] = set()
-        for _, t, d in g.out_edges(start, data=True):
-            if d.get("relation") != relation:
-                continue
-            if expected_range is not None:
-                target_type = g.nodes[t].get("type", "Unknown")
-                if target_type != expected_range:
-                    raise ValueError(
-                        f"Range violation: '{relation}' expects '{expected_range}' "
-                        f"but reached '{t}' of type '{target_type}'"
-                    )
-            seen.add(t)
-        return seen
-
-    def rev_hop(g, target: str, relation: str) -> set[str]:
-        """Reverse hop — find all nodes pointing to target via relation."""
-        return {s for s, t, d in g.in_edges(target, data=True) if d.get("relation") == relation}
-
-    return arch1_hop, arch2_hop, rev_hop
-
-
-@app.cell
-def _(arch1_hop, arch2_hop, rev_hop):
-    # ---------------------------------------------------------------------------
-    # 2-hop traversal
+    # 2-hop traversal over the shared hop primitives
     # ---------------------------------------------------------------------------
 
     def traverse_2hop_arch1(g, entity: str, rel1: str, dir1: str, rel2: str, dir2: str) -> set[str]:
         """Chain two hops — no ontology checking."""
         if dir1 == "forward":
-            intermediates = arch1_hop(g, entity, rel1)
+            intermediates = lib.arch1_hop(g, entity, rel1)
         else:
-            intermediates = rev_hop(g, entity, rel1)
+            intermediates = lib.rev_hop(g, entity, rel1)
 
         answers: set[str] = set()
         for mid in intermediates:
             if mid not in g:
                 continue
             if dir2 == "forward":
-                answers |= arch1_hop(g, mid, rel2)
+                answers |= lib.arch1_hop(g, mid, rel2)
             else:
-                answers |= rev_hop(g, mid, rel2)
+                answers |= lib.rev_hop(g, mid, rel2)
         return answers
 
     def traverse_2hop_arch2(g, entity: str, rel1: str, dir1: str, rel2: str, dir2: str) -> tuple[set[str], int]:
@@ -195,11 +117,11 @@ def _(arch1_hop, arch2_hop, rev_hop):
 
         if dir1 == "forward":
             try:
-                intermediates = arch2_hop(g, entity, rel1)
+                intermediates = lib.arch2_hop(g, entity, rel1)
             except ValueError:
                 return set(), 1
         else:
-            intermediates = rev_hop(g, entity, rel1)
+            intermediates = lib.rev_hop(g, entity, rel1)
 
         answers: set[str] = set()
         for mid in intermediates:
@@ -207,11 +129,11 @@ def _(arch1_hop, arch2_hop, rev_hop):
                 continue
             if dir2 == "forward":
                 try:
-                    answers |= arch2_hop(g, mid, rel2)
+                    answers |= lib.arch2_hop(g, mid, rel2)
                 except ValueError:
                     blocked += 1
             else:
-                answers |= rev_hop(g, mid, rel2)
+                answers |= lib.rev_hop(g, mid, rel2)
 
         return answers, blocked
 
@@ -367,114 +289,34 @@ def _():
 
 
 @app.cell
-def _():
-    # ---------------------------------------------------------------------------
-    # Question loader
-    # ---------------------------------------------------------------------------
+def run_eval(graph, infer_2hop_chain, lib, mo, traverse_2hop_arch1, traverse_2hop_arch2):
+    _qa = lib.load_qa(lib.QA_2HOP)
 
-    def load_qa(path) -> list[tuple[str, set[str]]]:
-        """Load (question, gold_answer_set) pairs from a MetaQA QA file."""
-        rows = []
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                parts = line.strip().split("\t")
-                if len(parts) != 2:
-                    continue
-                q, raw_answers = parts
-                rows.append((q, {a.strip() for a in raw_answers.split("|")}))
-        return rows
-
-    return (load_qa,)
-
-
-@app.cell
-def run_eval(
-    QA_2HOP,
-    defaultdict,
-    graph,
-    infer_2hop_chain,
-    load_qa,
-    mo,
-    re,
-    traverse_2hop_arch1,
-    traverse_2hop_arch2,
-):
-    _qa = load_qa(QA_2HOP)
-
-    # Per-chain-key counters: [hits, total]
-    _a1: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    _a2: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    _skipped = 0
-    _arch2_blocked_total = 0
-    _disagreements = 0
-
-    for _q, _gold in _qa:
-        _m = re.search(r"\[(.+?)\]", _q)
-        if not _m:
-            _skipped += 1
-            continue
-
-        _entity = _m.group(1)
-        if _entity not in graph:
-            _skipped += 1
-            continue
-
-        _entity_type = graph.nodes[_entity].get("type", "Unknown")
-        _chain = infer_2hop_chain(_q, _entity_type)
+    def _evaluate(question: str, entity: str, entity_type: str):
+        """Classify the question into a chain, then run both 2-hop traversals."""
+        _chain = infer_2hop_chain(question, entity_type)
         if _chain is None:
-            _skipped += 1
-            continue
-
+            return None
         _rel1, _dir1, _rel2, _dir2 = _chain
         _chain_key = f"{_rel1}({_dir1[:3]}) -> {_rel2}({_dir2[:3]})"
+        _r1 = traverse_2hop_arch1(graph, entity, _rel1, _dir1, _rel2, _dir2)
+        _r2, _blocked = traverse_2hop_arch2(graph, entity, _rel1, _dir1, _rel2, _dir2)
+        return _chain_key, _r1, _r2, _blocked
 
-        # Architecture 1
-        _r1 = traverse_2hop_arch1(graph, _entity, _rel1, _dir1, _rel2, _dir2)
-        _hit1 = bool(_r1 & _gold)
-        _a1[_chain_key][0] += int(_hit1)
-        _a1[_chain_key][1] += 1
-
-        # Architecture 2
-        _r2, _blocked = traverse_2hop_arch2(graph, _entity, _rel1, _dir1, _rel2, _dir2)
-        _hit2 = bool(_r2 & _gold)
-        _arch2_blocked_total += _blocked
-        _a2[_chain_key][0] += int(_hit2)
-        _a2[_chain_key][1] += 1
-
-        if _hit1 != _hit2:
-            _disagreements += 1
-
-    # Build results table
-    _all_chains = sorted(set(_a1) | set(_a2))
-    _rows_md = ""
-    _total_a1_hits = _total_a2_hits = _total_qs = 0
-    for _ck in _all_chains:
-        _h1, _n1 = _a1[_ck]
-        _h2, _n2 = _a2[_ck]
-        _pct1 = f"{100 * _h1 // _n1}%" if _n1 else "—"
-        _pct2 = f"{100 * _h2 // _n2}%" if _n2 else "—"
-        _diff = "**DIFF**" if _h1 != _h2 else ""
-        _rows_md += f"| `{_ck}` | {_n1} | {_h1} ({_pct1}) | {_h2} ({_pct2}) | {_diff} |\n"
-        _total_a1_hits += _h1
-        _total_a2_hits += _h2
-        _total_qs += _n1
-
-    _overall1 = f"{100 * _total_a1_hits // _total_qs}%" if _total_qs else "—"
-    _overall2 = f"{100 * _total_a2_hits // _total_qs}%" if _total_qs else "—"
+    _result = lib.evaluate_qa(_qa, graph, _evaluate)
 
     mo.md(f"""
     ## Results
 
-    **Test questions:** {len(_qa)} total — {_total_qs} evaluated, {_skipped} skipped
+    **Test questions:** {_result.n_questions} total — {_result.evaluated} evaluated, {_result.skipped} skipped
     (skipped = entity not in graph or question template not recognised)
 
     | Chain | Questions | Arch 1 hit rate | Arch 2 hit rate | |
     |---|---|---|---|---|
-    {_rows_md}
-    | **TOTAL** | **{_total_qs}** | **{_overall1}** | **{_overall2}** | |
+    {_result.rows_md()}
 
-    **Disagreements (arch1 hit ≠ arch2 hit):** {_disagreements}
-    **Arch 2 forward-hop blocks across all hops:** {_arch2_blocked_total}
+    **Disagreements (arch1 hit ≠ arch2 hit):** {_result.disagreements}
+    **Arch 2 forward-hop blocks across all hops:** {_result.arch2_blocked}
 
     > Hit rate = % of questions where at least one gold answer is in the returned set.
     > Reverse hops use the same traversal in both architectures (no source-type constraint applies).

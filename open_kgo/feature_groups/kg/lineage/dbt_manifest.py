@@ -12,8 +12,10 @@ from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
 from open_kgo.feature_groups.kg.lineage.base import LineageFeatureGroup, LineageReader
+from open_kgo.feature_groups.kg.traversal import bfs_frontier_walk
 
 
 class DbtManifestReader(LineageReader):
@@ -44,9 +46,8 @@ class DbtManifestReader(LineageReader):
         return load_json_fixture(cls.CONNECTOR_ID, slot["locator"])
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        manifest = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        manifest = connection
         params = cls.build_params(features, ctx.slot)
 
         asset_urn = params.get("asset_urn")
@@ -67,10 +68,20 @@ class DbtManifestReader(LineageReader):
             # caller holds row["node"] (see ``_connect_from_slot``).
             rows.append({"urn": asset_urn, "node": copy_cached_row(nodes_index[asset_urn])})
 
+        # One EMITTED set shared across both directional walks: under BOTH, a
+        # node reachable in both directions (cycle through the start) must be
+        # emitted once and bill result_limit once. Each walk keeps its own
+        # local visited set, so an already-emitted overlap node is still
+        # expanded by the second walk and nodes beyond it are reached.
+        emitted: set[str] = {asset_urn}
         if direction in ("UPSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk_with_node(parent_map, nodes_index, asset_urn, upstream_depth, result_limit - len(rows)))
+            rows.extend(
+                _walk_with_node(parent_map, nodes_index, asset_urn, upstream_depth, result_limit - len(rows), emitted)
+            )
         if direction in ("DOWNSTREAM", "BOTH") and len(rows) < result_limit:
-            rows.extend(_walk_with_node(child_map, nodes_index, asset_urn, downstream_depth, result_limit - len(rows)))
+            rows.extend(
+                _walk_with_node(child_map, nodes_index, asset_urn, downstream_depth, result_limit - len(rows), emitted)
+            )
 
         return rows
 
@@ -81,35 +92,24 @@ def _walk_with_node(
     start: str,
     depth: int,
     remaining: int,
+    emitted: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """BFS walk along edge_map; emit nodes_index[urn] entries (or {urn:...} stubs).
 
-    Aborts as soon as ``remaining`` rows have been emitted so result_limit
-    bounds the work walked, not just the output sliced. Without this guard a
-    wide manifest pays full BFS cost for a tiny limit.
+    Thin binding over ``bfs_frontier_walk`` (see ``kg.traversal`` for the
+    budget and dedup semantics): supplies the dbt edge map and the
+    ``{"urn": ..., "node": ...}`` row shape. ``nodes_index`` is a ref into
+    the shared manifest cache; ``copy_cached_row`` keeps it read-only at the
+    row level.
     """
-    if depth <= 0 or remaining <= 0:
-        return []
-    out: list[dict[str, Any]] = []
-    seen: set[str] = {start}
-    frontier: list[str] = [start]
-    for _ in range(depth):
-        next_frontier: list[str] = []
-        for node in frontier:
-            for nbr in edge_map.get(node, []):
-                if nbr in seen:
-                    continue
-                seen.add(nbr)
-                # ``nodes_index`` is a ref into the shared manifest cache;
-                # copy_cached_row keeps it read-only at the row level.
-                out.append({"urn": nbr, "node": copy_cached_row(nodes_index.get(nbr))})
-                if len(out) >= remaining:
-                    return out
-                next_frontier.append(nbr)
-        if not next_frontier:
-            break
-        frontier = next_frontier
-    return out
+    return bfs_frontier_walk(
+        lambda node: edge_map.get(node, []),
+        start,
+        depth=depth,
+        remaining=remaining,
+        emit=lambda urn: {"urn": urn, "node": copy_cached_row(nodes_index.get(urn))},
+        emitted=emitted,
+    )
 
 
 class DbtManifestFeatureGroup(LineageFeatureGroup):

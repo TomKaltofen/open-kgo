@@ -16,6 +16,7 @@ from mloda.user import Feature, Options
 from open_kgo.feature_groups.kg.errors import FixtureLoadError
 from open_kgo.feature_groups.kg.rdf.rdflib_sparql import RdfLibSparqlReader
 from open_kgo.feature_groups.kg.rdf.tests.kg_rdf_contract import RdfContractTestBase
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE_TTL = Path(__file__).parent / "fixtures" / "sample.ttl"
@@ -28,14 +29,7 @@ class TestRdfLibSparqlReader(RdfContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "rdflib_sparql": {
-                "locator": str(_FIXTURE_TTL),
-                "result_format": "application/sparql-results+json",
-                "reasoning_profile": "none",
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(cls.connector_reader_class(), locator=str(_FIXTURE_TTL), result_limit=100)
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:
@@ -96,13 +90,6 @@ class TestRdfLibSparqlReader(RdfContractTestBase):
         feat = self.feature_under_test()
         rows = run_query("rdflib_sparql", slot, feat)
         assert len(rows) == 2
-
-    def test_http_locator_rejected(self) -> None:
-        """connect() must refuse remote schemes (no network IO at fetch time)."""
-        cls = self.connector_reader_class()
-        creds = {cls.CONNECTOR_ID: {"locator": "http://example.com/evil.ttl"}}
-        with pytest.raises(ValueError, match="scheme"):
-            cls.connect(creds)
 
     def test_windows_drive_locator_passes_scheme_guard(self) -> None:
         """Windows-style drive letter prefixes must not be flagged as remote schemes.

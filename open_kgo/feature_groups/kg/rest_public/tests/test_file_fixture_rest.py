@@ -12,13 +12,14 @@ import pytest
 
 from mloda.provider import HashableDict
 
-from open_kgo.feature_groups.kg.errors import InvalidCredentialShape
+from open_kgo.feature_groups.kg.errors import InvalidCredentialShape, MissingRequiredKeysError
 from open_kgo.feature_groups.kg.rest_public.file_fixture_rest import (
     FileFixtureRestReader,
 )
 from open_kgo.feature_groups.kg.rest_public.tests.kg_rest_public_contract import (
     RestPublicContractTestBase,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -31,14 +32,9 @@ class TestFileFixtureRestReader(RestPublicContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "file_fixture_rest": {
-                "locator": str(_FIXTURE_DIR),
-                "pagination_style": "cursor",
-                "rate_limit_pace": 100,
-                "result_limit": 100,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(), locator=str(_FIXTURE_DIR), pagination_style="cursor", result_limit=100
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:
@@ -67,6 +63,22 @@ class TestFileFixtureRestReader(RestPublicContractTestBase):
         creds = HashableDict({"file_fixture_rest": slot})
         assert FileFixtureRestReader.is_valid_credentials(creds) is False
         with pytest.raises(InvalidCredentialShape):
+            FileFixtureRestReader._validate_shape(slot)
+
+    def test_omitted_pagination_style_rejected_at_validate_time(self) -> None:
+        """A full valid slot minus ``pagination_style`` fails ``is_valid_credentials``.
+
+        ``SUPPORTED_VALUES`` only validates keys present in the slot, and the
+        family default is ``none`` (a style this reader does not honor), so
+        the omission case must be closed by ``REQUIRED_KEYS``: without it, the
+        slot would validate and the cursor walk would run under a defaulted
+        ``none`` label.
+        """
+        slot = dict(self.valid_credentials()["file_fixture_rest"])
+        del slot["pagination_style"]
+        creds = HashableDict({"file_fixture_rest": slot})
+        assert FileFixtureRestReader.is_valid_credentials(creds) is False
+        with pytest.raises(MissingRequiredKeysError):
             FileFixtureRestReader._validate_shape(slot)
 
     def test_stripped_keys_rejected_by_closed_world(self) -> None:

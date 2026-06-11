@@ -4,14 +4,9 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
-
-from open_kgo.feature_groups.kg.base import (
-    KgConnectorFeatureGroupBase,
-    ParamReader,
-    compose_property_mapping,
-)
+from open_kgo.feature_groups.kg.base import KgConnectorFeatureGroupBase, ParamReader
 from open_kgo.feature_groups.kg.mixins import EntityFilterPropertyMixin, PaginationMixin
+from open_kgo.feature_groups.kg.spec import property_spec
 
 
 _CONSISTENCY_MODES: dict[str, str] = {
@@ -24,54 +19,42 @@ _CONSISTENCY_MODES: dict[str, str] = {
     "HIGHER_CONSISTENCY": "OpenFGA higher-consistency request.",
 }
 
+_FAMILY_PROPERTIES: dict[str, Any] = {
+    "tenant": property_spec(
+        (
+            "Tenant identifier; six observed shapes: subdomain, instance_url, store_id, "
+            "token-implicit, wiki_url, vault_path."
+        ),
+    ),
+    "api_version": property_spec(
+        "API version pin (e.g. v1.0, 2026-04, v62.0).",
+    ),
+    "consistency_token": property_spec(
+        "Opaque ZedToken / OData consistency token.",
+    ),
+    "consistency_mode": property_spec(
+        "Consistency semantics requested for authz reads.",
+        strict=True,
+        allowed_values=_CONSISTENCY_MODES,
+        default="minimize_latency",
+    ),
+    "authorization_model_id": property_spec(
+        "OpenFGA authorization model id (also: Salesforce permset, etc.).",
+    ),
+}
 
-class SaasAuthzReader(EntityFilterPropertyMixin, PaginationMixin, ParamReader):
-    PROPERTY_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
-        ParamReader.PROPERTY_MAPPING,
-        PaginationMixin.PROPERTY_MAPPING_DELTA,
-        EntityFilterPropertyMixin.PROPERTY_MAPPING_DELTA,
-        {
-            "tenant": {
-                "explanation": (
-                    "Tenant identifier; six observed shapes: subdomain, instance_url, store_id, "
-                    "token-implicit, wiki_url, vault_path."
-                ),
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "api_version": {
-                "explanation": "API version pin (e.g. v1.0, 2026-04, v62.0).",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "consistency_token": {
-                "explanation": "Opaque ZedToken / OData consistency token.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "consistency_mode": {
-                "explanation": "Consistency semantics requested for authz reads.",
-                "allowed_values": _CONSISTENCY_MODES,
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: True,
-                DefaultOptionKeys.default: "minimize_latency",
-            },
-            "authorization_model_id": {
-                "explanation": "OpenFGA authorization model id (also: Salesforce permset, etc.).",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-        },
-        context="SaasAuthzReader",
-    )
 
-    PARAMS_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
-        PaginationMixin.PARAMS_MAPPING_DELTA,
-        context="SaasAuthzReader.PARAMS_MAPPING",
+class SaasAuthzReader(
+    EntityFilterPropertyMixin,
+    PaginationMixin,
+    ParamReader,
+    family_properties=_FAMILY_PROPERTIES,
+):
+    # Honest surface (option 3, see base.py): SpiceDB/OpenFGA/OData knobs the
+    # in-process fakes ignore (plain dict ops, no versioning/consistency),
+    # reserved for a real authz backend.
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset(
+        {"api_version", "consistency_token", "authorization_model_id"}
     )
 
 

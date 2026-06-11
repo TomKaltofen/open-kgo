@@ -3,7 +3,9 @@
 Loads a graph from a fixture file (.gml / .graphml / etc.) at ``locator``,
 then runs a small "operation" defined by the Feature's options:
 
-- ``operation=neighbors`` + ``start_node``: returns the neighbors list.
+- ``operation=neighbors`` + ``start_node``: returns the neighbors list. A
+  ``start_node`` absent from the graph raises the family-typed
+  ``UnknownStartNodeError`` (identical behavior to the igraph sibling).
 - ``operation=nodes``: returns all nodes.
 - ``operation=edges``: returns all edges.
 
@@ -19,9 +21,11 @@ import networkx as nx
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
+from open_kgo.feature_groups.kg.base import LoadContext
 from open_kgo.feature_groups.kg.embedded.base import (
     EmbeddedGraphFeatureGroup,
     EmbeddedGraphReader,
+    UnknownStartNodeError,
 )
 from open_kgo.feature_groups.kg.fixtures import _rejected_scheme
 
@@ -73,9 +77,8 @@ class NetworkxEmbeddedReader(EmbeddedGraphReader):
         return loader(locator)
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        graph = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        graph = connection
 
         params = cls.build_params(features, ctx.slot)
         op = params["operation"]
@@ -88,6 +91,11 @@ class NetworkxEmbeddedReader(EmbeddedGraphReader):
             start = params.get("start_node")
             if start is None:
                 raise ValueError(f"{cls.CONNECTOR_ID}: operation=neighbors requires 'start_node'.")
+            if start not in graph:
+                # Family-typed error (instead of the raw networkx.NetworkXError
+                # that graph.neighbors would leak) so both embedded backends
+                # fail identically on an unknown start_node.
+                raise UnknownStartNodeError(cls.CONNECTOR_ID, start)
             return [{"node": n} for n in islice(graph.neighbors(start), ctx.result_limit)]
         raise ValueError(f"{cls.CONNECTOR_ID}: unsupported operation={op!r}")
 

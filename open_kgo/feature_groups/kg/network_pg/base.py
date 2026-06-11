@@ -4,13 +4,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from mloda.core.abstract_plugins.components.default_options_key import DefaultOptionKeys
-
-from open_kgo.feature_groups.kg.base import (
-    KgConnectorFeatureGroupBase,
-    QueryReader,
-    compose_property_mapping,
-)
+from open_kgo.feature_groups.kg.base import KgConnectorFeatureGroupBase, QueryReader
+from open_kgo.feature_groups.kg.spec import property_spec
 
 
 _READ_CONSISTENCY: dict[str, str] = {
@@ -26,34 +21,30 @@ _TRANSACTION_MODE: dict[str, str] = {
     "schema": "Schema-mutating transaction (TypeDB SCHEMA mode).",
 }
 
+_FAMILY_PROPERTIES: dict[str, Any] = {
+    "dataset": property_spec(
+        "Database / graph / space name on the endpoint.",
+    ),
+    "read_consistency": property_spec(
+        "Read consistency level the connector should request.",
+        strict=True,
+        allowed_values=_READ_CONSISTENCY,
+        default="read",
+    ),
+    "transaction_mode": property_spec(
+        "Transaction handling mode used by the engine.",
+        strict=True,
+        allowed_values=_TRANSACTION_MODE,
+        default="auto",
+    ),
+}
 
-class NetworkPropertyGraphReader(QueryReader):
-    PROPERTY_MAPPING: ClassVar[dict[str, Any]] = compose_property_mapping(
-        QueryReader.PROPERTY_MAPPING,
-        {
-            "dataset": {
-                "explanation": "Database / graph / space name on the endpoint.",
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: False,
-                DefaultOptionKeys.default: None,
-            },
-            "read_consistency": {
-                "explanation": "Read consistency level the connector should request.",
-                "allowed_values": _READ_CONSISTENCY,
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: True,
-                DefaultOptionKeys.default: "read",
-            },
-            "transaction_mode": {
-                "explanation": "Transaction handling mode used by the engine.",
-                "allowed_values": _TRANSACTION_MODE,
-                DefaultOptionKeys.context: True,
-                DefaultOptionKeys.strict_validation: True,
-                DefaultOptionKeys.default: "auto",
-            },
-        },
-        context="NetworkPropertyGraphReader",
-    )
+
+class NetworkPropertyGraphReader(QueryReader, family_properties=_FAMILY_PROPERTIES):
+    # Honest surface (option 3, see base.py): ``dataset`` names a database on a
+    # networked endpoint; both concretes run over a single in-memory/embedded
+    # graph with no such concept. Reserved for a networked concrete (Neo4j).
+    _WAIVED_UNCONSUMED_KEYS: ClassVar[frozenset[str]] = frozenset({"dataset"})
 
 
 class NetworkPropertyGraphFeatureGroup(KgConnectorFeatureGroupBase):

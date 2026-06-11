@@ -19,12 +19,13 @@ from typing import Any, ClassVar, Mapping
 
 from mloda.core.abstract_plugins.components.feature_set import FeatureSet
 
-from open_kgo.feature_groups.kg.base import narrow_property_mapping
+from open_kgo.feature_groups.kg.base import LoadContext, narrow_property_mapping
 from open_kgo.feature_groups.kg.citation_rest.base import (
     CitationRestFeatureGroup,
     CitationRestReader,
 )
 from open_kgo.feature_groups.kg.fixtures import copy_cached_row, load_json_fixture
+from open_kgo.feature_groups.kg.traversal import bfs_collect_ids
 
 
 class FileFixtureCitationReader(CitationRestReader):
@@ -50,9 +51,8 @@ class FileFixtureCitationReader(CitationRestReader):
         return load_json_fixture(cls.CONNECTOR_ID, slot["locator"])
 
     @classmethod
-    def load_data(cls, data_access: Any, features: FeatureSet) -> list[dict[str, Any]]:
-        ctx = cls._prepare_load(data_access)
-        catalog = cls._connect_from_slot(ctx.slot)
+    def _load_rows(cls, ctx: LoadContext, connection: Any, features: FeatureSet) -> list[dict[str, Any]]:
+        catalog = connection
         # Thread ctx.slot through so the cross-layer hook engages. cursor_token
         # is stripped from PARAMS_MAPPING here, so _reject_stripped_params
         # short-circuits before _validate_cross_layer; the slot is still passed
@@ -64,23 +64,18 @@ class FileFixtureCitationReader(CitationRestReader):
         if stable_id is None:
             raise ValueError(f"{cls.CONNECTOR_ID}: stable_id is required for citation lookup.")
 
-        rows: list[dict[str, Any]] = []
-        if stable_id in catalog:
-            visited: set[str] = set()
-            queue: list[tuple[str, int]] = [(stable_id, 0)]
-            while queue and len(rows) < ctx.result_limit:
-                node_id, hop = queue.pop(0)
-                if node_id in visited or node_id not in catalog:
-                    continue
-                visited.add(node_id)
-                # ``catalog`` is shared across calls (see ``_connect_from_slot``);
-                # copy_cached_row keeps the cache read-only at the row level.
-                rows.append(copy_cached_row(catalog[node_id]))
-                if hop < depth:
-                    for ancestor_id in catalog[node_id].get("ancestors", []):
-                        if ancestor_id not in visited:
-                            queue.append((ancestor_id, hop + 1))
-        return rows[: ctx.result_limit]
+        # BFS the ancestor hierarchy, bounded by result_limit so the cap
+        # bounds the walk rather than slicing a fully-expanded set.
+        collected = bfs_collect_ids(
+            lambda node_id: node_id in catalog,
+            lambda node_id: catalog[node_id].get("ancestors", []),
+            stable_id,
+            depth=depth,
+            max_nodes=ctx.result_limit,
+        )
+        # ``catalog`` is shared across calls (see ``_connect_from_slot``);
+        # copy_cached_row keeps the cache read-only at the row level.
+        return [copy_cached_row(catalog[node_id]) for node_id in collected]
 
 
 class FileFixtureCitationFeatureGroup(CitationRestFeatureGroup):

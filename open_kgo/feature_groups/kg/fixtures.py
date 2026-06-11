@@ -8,7 +8,7 @@ the same source artifact. This module centralises the
 parse-once / share-many pipeline so every file-backed concrete routes
 through one cache and the connector-lifecycle contract stays consistent.
 
-Three loaders are provided:
+Four loaders are provided:
 
 - ``load_json_fixture(connector_id, locator)`` — open + ``json.load`` + dict
   shape check, memoised by ``(absolute path, mtime_ns)``. Used by the JSON
@@ -21,6 +21,12 @@ Three loaders are provided:
   default Memory store's ``close()`` is a no-op, so the shared graph
   survives the contract test that closes ``connect()``'s return value
   (verified empirically against rdflib 7.x).
+- ``load_oxigraph_store(connector_id, locator)`` — parse the same RDF
+  serialisations into an in-memory ``pyoxigraph.Store``, memoised by
+  ``(absolute path, mtime_ns)``. The oxigraph sibling of ``load_rdf_graph``;
+  the pyoxigraph import is deferred to call time so the module imports
+  without the ``kg-rdf`` extra. The returned store is shared across calls;
+  callers run read-only SPARQL against it and MUST NOT mutate it.
 - ``load_kuzu_database(connector_id, locator)`` — open a ``kuzu.Database``
   directory, memoised by ``absolute path`` only. Mtime keying does NOT
   apply: Kuzu mutates the database directory as it runs its own queries,
@@ -42,7 +48,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable, TypeVar
 from urllib.parse import urlparse
 
 # SAXException is used purely as a parent class for narrowing the
@@ -86,6 +92,26 @@ def copy_cached_row(value: Any) -> Any:
     return {**value} if isinstance(value, dict) else value
 
 
+def copy_cached_rows(rows: Iterable[Any], limit: int) -> list[dict[str, Any]]:
+    """Copy up to ``limit`` rows from a shared cached fixture into a fresh list.
+
+    The "route each emitted row through ``copy_cached_row``, stop at the
+    cap" loop used to be spelled inline by every flat-list fixture reader
+    (REST page walks, CycloneDX components). Centralising it keeps the
+    cache-immutability enforcement point impossible to forget when a new
+    fixture-backed concrete lands: the copy and the bound travel together.
+    """
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        # Bound check before the append so a non-positive limit yields [] (the
+        # callers' result_limit arithmetic keeps it >= 1 today, but a shared
+        # primitive should not over-emit on the edge).
+        if len(out) >= limit:
+            break
+        out.append(copy_cached_row(row))
+    return out
+
+
 def _rejected_scheme(locator: Any) -> str | None:
     """Return the rejected scheme (lowercase) if ``locator`` is remote, else ``None``.
 
@@ -120,6 +146,38 @@ def _validate_local_locator(connector_id: str, locator: Any) -> Path:
     return Path(locator_str)
 
 
+_T = TypeVar("_T")
+
+
+def _load_cached(connector_id: str, locator: Any, cached_loader: Callable[..., _T], *, mtime_keyed: bool = True) -> _T:
+    """Shared validate -> stat -> resolve -> cached-call -> error-translation pipeline.
+
+    Every public loader below is this wrapper plus a format-specific cached
+    inner function. ``mtime_keyed=True`` (JSON / RDF / oxigraph) stats the
+    path and calls ``cached_loader(abs_path, mtime_ns)`` so the cache
+    invalidates when the file changes; ``mtime_keyed=False`` (kuzu) calls
+    ``cached_loader(abs_path)`` so the handle survives the backend's own
+    directory writes (see ``load_kuzu_database`` for why). Failure modes:
+    a remote scheme or unstattable path raises ``FixtureLoadError`` against
+    the caller-supplied locator string; a ``_FixtureLoadProblem`` from the
+    inner loader is re-raised as ``FixtureLoadError`` against the resolved
+    absolute path (matching the cache key the problem occurred under).
+    """
+    path = _validate_local_locator(connector_id, locator)
+    locator_str = str(locator)
+    key_args: tuple[int, ...] = ()
+    if mtime_keyed:
+        try:
+            key_args = (path.stat().st_mtime_ns,)
+        except OSError as exc:
+            raise FixtureLoadError(connector_id, locator_str, f"cannot stat locator path: {exc}") from exc
+    abs_path = str(path.resolve())
+    try:
+        return cached_loader(abs_path, *key_args)
+    except _FixtureLoadProblem as exc:
+        raise FixtureLoadError(connector_id, abs_path, exc.reason) from exc.__cause__
+
+
 def load_json_fixture(connector_id: str, locator: Any) -> dict[str, Any]:
     """Resolve ``locator`` to a local file, read it as UTF-8 JSON, validate top-level shape.
 
@@ -132,17 +190,7 @@ def load_json_fixture(connector_id: str, locator: Any) -> dict[str, Any]:
     MUST treat it as read-only (shallow-copy any row appended into a
     result list — see ``FileFixtureCitationReader.load_data``).
     """
-    path = _validate_local_locator(connector_id, locator)
-    locator_str = str(locator)
-    try:
-        mtime_ns = path.stat().st_mtime_ns
-    except OSError as exc:
-        raise FixtureLoadError(connector_id, locator_str, f"cannot stat locator path: {exc}") from exc
-    abs_path = str(path.resolve())
-    try:
-        return _read_json_cached(abs_path, mtime_ns)
-    except _FixtureLoadProblem as exc:
-        raise FixtureLoadError(connector_id, abs_path, exc.reason) from exc.__cause__
+    return _load_cached(connector_id, locator, _read_json_cached)
 
 
 @lru_cache(maxsize=64)
@@ -178,17 +226,7 @@ def load_rdf_graph(connector_id: str, locator: Any) -> rdflib.Graph:
     ``connect()``'s return survives the cache; ``add`` / ``remove`` calls
     would corrupt subsequent loads in the same process.
     """
-    path = _validate_local_locator(connector_id, locator)
-    locator_str = str(locator)
-    try:
-        mtime_ns = path.stat().st_mtime_ns
-    except OSError as exc:
-        raise FixtureLoadError(connector_id, locator_str, f"cannot stat locator path: {exc}") from exc
-    abs_path = str(path.resolve())
-    try:
-        return _read_rdf_graph_cached(abs_path, mtime_ns)
-    except _FixtureLoadProblem as exc:
-        raise FixtureLoadError(connector_id, abs_path, exc.reason) from exc.__cause__
+    return _load_cached(connector_id, locator, _read_rdf_graph_cached)
 
 
 @lru_cache(maxsize=64)
@@ -215,6 +253,76 @@ def _read_rdf_graph_cached(abs_path: str, mtime_ns: int) -> rdflib.Graph:
     except (rdflib.exceptions.Error, SyntaxError, SAXException, ValueError, UnicodeDecodeError) as exc:
         raise _FixtureLoadProblem(f"locator is not parseable as RDF: {exc}") from exc
     return graph
+
+
+_OXIGRAPH_FORMAT_BY_SUFFIX: dict[str, str] = {
+    ".ttl": "TURTLE",
+    ".nt": "N_TRIPLES",
+    ".n3": "N3",
+    ".trig": "TRIG",
+    ".nq": "N_QUADS",
+    ".rdf": "RDF_XML",
+    ".xml": "RDF_XML",
+    ".jsonld": "JSON_LD",
+}
+
+
+def load_oxigraph_store(connector_id: str, locator: Any) -> Any:
+    """Parse an RDF file into an in-memory ``pyoxigraph.Store``; memoised by ``(path, mtime_ns)``.
+
+    The oxigraph sibling of ``load_rdf_graph``: a real Turtle file is
+    1-100MB and oxigraph's parse pass is the expensive step, so a
+    100-feature ``mloda.run_all`` pays one parse instead of one hundred.
+    Returns ``Any`` to keep the pyoxigraph dependency optional at import
+    time (the import is deferred to call time, mirroring
+    ``load_kuzu_database``), so test environments without the ``kg-rdf``
+    extra can still import this module. The returned store is shared
+    across calls; callers run read-only SPARQL queries against it and MUST
+    NOT mutate it.
+    """
+    return _load_cached(connector_id, locator, _read_oxigraph_store_cached)
+
+
+@lru_cache(maxsize=64)
+def _read_oxigraph_store_cached(abs_path: str, mtime_ns: int) -> Any:
+    """Load ``abs_path`` into a ``pyoxigraph.Store``; memoised by ``(path, mtime_ns)``.
+
+    The RDF serialisation format is selected from the file extension
+    (defaulting to Turtle) since oxigraph's loader needs it explicitly,
+    unlike rdflib's content auto-detection. A suffix outside the known map
+    keeps the documented Turtle default, but the parse-failure message then
+    names the assumed format and the unknown suffix so a misleading "not
+    parseable as RDF" on e.g. a ``.owl`` file is self-explaining. The file
+    object is passed to ``Store.load`` directly (pyoxigraph 0.5.x accepts
+    binary I/O objects) so the 1-100MB artifacts the module docstring sizes
+    are streamed rather than buffered via ``f.read()``. pyoxigraph raises
+    the builtin ``SyntaxError`` on malformed RDF (verified against
+    pyoxigraph 0.5.x); ``ValueError`` / ``UnicodeDecodeError`` cover bad
+    bytes. The pyoxigraph import is deferred so the module imports without
+    the ``kg-rdf`` extra.
+    """
+    import pyoxigraph
+
+    suffix = Path(abs_path).suffix.lower()
+    fmt_name = _OXIGRAPH_FORMAT_BY_SUFFIX.get(suffix)
+    if fmt_name is None:
+        fmt_name = "TURTLE"
+        format_note = (
+            f"parsed as TURTLE based on suffix {suffix!r} which is not in the known suffix map "
+            f"{sorted(_OXIGRAPH_FORMAT_BY_SUFFIX)}"
+        )
+    else:
+        format_note = f"parsed as {fmt_name} based on suffix {suffix!r}"
+    rdf_format = getattr(pyoxigraph.RdfFormat, fmt_name)
+    store = pyoxigraph.Store()
+    try:
+        with open(abs_path, "rb") as f:
+            store.load(f, format=rdf_format)
+    except OSError as exc:
+        raise _FixtureLoadProblem(f"cannot open RDF locator file: {exc}") from exc
+    except (SyntaxError, ValueError, UnicodeDecodeError) as exc:
+        raise _FixtureLoadProblem(f"locator is not parseable as RDF ({format_note}): {exc}") from exc
+    return store
 
 
 def load_kuzu_database(connector_id: str, locator: Any) -> Any:
@@ -244,11 +352,7 @@ def load_kuzu_database(connector_id: str, locator: Any) -> Any:
     # typed FixtureLoadError.
     if not path.exists():
         raise FixtureLoadError(connector_id, locator_str, f"kuzu locator path does not exist: {locator_str!r}")
-    abs_path = str(path.resolve())
-    try:
-        return _open_kuzu_database_cached(abs_path)
-    except _FixtureLoadProblem as exc:
-        raise FixtureLoadError(connector_id, abs_path, exc.reason) from exc.__cause__
+    return _load_cached(connector_id, locator, _open_kuzu_database_cached, mtime_keyed=False)
 
 
 @lru_cache(maxsize=64)

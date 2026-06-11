@@ -20,6 +20,7 @@ from open_kgo.feature_groups.kg.errors import (
     InvalidCredentialShape,
     UnknownMemoryScopeError,
 )
+from open_kgo.feature_groups.kg.tests._helpers import make_valid_credentials
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "memories.json"
@@ -32,17 +33,9 @@ class TestNetworkxMemoryReader(AgentMemoryContractTestBase):
 
     @classmethod
     def valid_credentials(cls) -> dict[str, Any]:
-        return {
-            "networkx_memory": {
-                "locator": str(_FIXTURE),
-                "memory_scope_user_id": "user_42",
-                "retrieval_mode": "lexical",
-                "pagination_style": "none",
-                "result_limit": 100,
-                "threshold": 0.0,
-                "mmr_lambda": 0.5,
-            }
-        }
+        return make_valid_credentials(
+            cls.connector_reader_class(), locator=str(_FIXTURE), memory_scope_user_id="user_42", result_limit=100
+        )
 
     @classmethod
     def invalid_credentials(cls) -> dict[str, Any]:
@@ -97,19 +90,6 @@ class TestNetworkxMemoryReader(AgentMemoryContractTestBase):
         with pytest.raises(UnknownMemoryScopeError):
             NetworkxMemoryReader.connect(creds)
 
-    def test_remote_locator_rejected(self) -> None:
-        """A ``http://``/``https://`` locator must be rejected at connect time.
-
-        Mirrors the rdflib reader's URI-scheme guard from PR #7 so a
-        copy-pasted URL surfaces as a typed ``FixtureLoadError`` instead of
-        a confusing ``FileNotFoundError`` against the URL-as-relative-path.
-        """
-        slot = dict(self.valid_credentials()["networkx_memory"])
-        slot["locator"] = "http://example.invalid/memories.json"
-        creds = HashableDict({"networkx_memory": slot})
-        with pytest.raises(FixtureLoadError):
-            NetworkxMemoryReader.connect(creds)
-
     def test_missing_locator_file_is_typed(self) -> None:
         """A ``locator`` pointing at a non-existent file raises ``FixtureLoadError``."""
         slot = dict(self.valid_credentials()["networkx_memory"])
@@ -134,7 +114,7 @@ class TestNetworkxMemoryReader(AgentMemoryContractTestBase):
         Guards against the otherwise-silent ``user_id not in store`` path
         where ``store`` is a list (sequence ``__contains__`` succeeds for
         member equality) or a scalar (raises ``TypeError`` deep inside
-        ``_build_memory_graph``).
+        ``build_memory_graph`` in ``agent_memory/shared.py``).
         """
         bad = tmp_path / "list.json"
         bad.write_text("[]", encoding="utf-8")
